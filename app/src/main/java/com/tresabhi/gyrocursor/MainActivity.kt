@@ -18,6 +18,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -25,7 +26,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -87,9 +89,10 @@ fun GyroTracker(modifier: Modifier = Modifier, hidManager: HidMouseManager) {
     }
     val gyroSensor = remember { sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE) }
 
-    var x by remember { mutableStateOf(0f) }
-    var y by remember { mutableStateOf(0f) }
-    var lastTimestamp by remember { mutableStateOf(0L) }
+    var x by remember { mutableFloatStateOf(0f) }
+    var y by remember { mutableFloatStateOf(0f) }
+    var z by remember { mutableFloatStateOf(0f) }
+    var lastTimestamp by remember { mutableLongStateOf(0L) }
 
     DisposableEffect(Unit) {
         val listener = object : SensorEventListener {
@@ -102,6 +105,7 @@ fun GyroTracker(modifier: Modifier = Modifier, hidManager: HidMouseManager) {
                 lastTimestamp = event.timestamp
                 x += event.values[0] * dt
                 y += event.values[1] * dt
+                z += event.values[2] * dt
 
                 val scale = 10f
                 val dx = (-y * scale).toInt()
@@ -117,7 +121,16 @@ fun GyroTracker(modifier: Modifier = Modifier, hidManager: HidMouseManager) {
         onDispose { sensorManager.unregisterListener(listener) }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .clickable {
+                x = 0f
+                y = 0f
+                z = 0f
+                lastTimestamp = 0L
+            }
+    ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val scale = 300f
             drawCircle(
@@ -133,7 +146,6 @@ fun GyroTracker(modifier: Modifier = Modifier, hidManager: HidMouseManager) {
 }
 
 class HidMouseManager(private val context: Context) {
-
     private val adapter: BluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
     private var hidDevice: BluetoothHidDevice? = null
     private var hostDevice: BluetoothDevice? = null
@@ -207,7 +219,7 @@ class HidMouseManager(private val context: Context) {
                 val report = byteArrayOf(0x00, dx.toByte(), dy.toByte(), 0x00)
                 try {
                     hidDevice?.sendReport(device, 0, report)
-                } catch (e: SecurityException) {
+                } catch (_: SecurityException) {
                     println("Cannot send HID report: BLUETOOTH_CONNECT not granted")
                 }
             }
