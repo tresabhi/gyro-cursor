@@ -9,12 +9,12 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -23,7 +23,10 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -100,7 +103,7 @@ fun GyroTracker(modifier: Modifier = Modifier) {
         }
     }
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .clickable {
@@ -110,11 +113,19 @@ fun GyroTracker(modifier: Modifier = Modifier) {
                 lastTimestamp = 0L
             }
     ) {
-        Text("Tap screen to reset")
-        Text("Gyroscope values:")
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val scale = 300f
+            var u = -y
+            var v = x
 
-        Text("X: ${"%.2f".format(x)}")
-        Text("Y: ${"%.2f".format(y)}")
-        Text("Z: ${"%.2f".format(z)}")
+            drawCircle(
+                color = Color.hsl(0f, 0f, 0.25f),
+                radius = 20.dp.toPx(),
+                center = Offset(
+                    x = size.width / 2 + u * scale,
+                    y = size.height / 2 + v * scale
+                )
+            )
+        }
     }
 }
