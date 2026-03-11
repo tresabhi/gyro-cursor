@@ -15,7 +15,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -29,7 +28,6 @@ import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.Toast;
 
-import androidx.annotation.RequiresApi;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -38,6 +36,7 @@ import com.google.android.material.textfield.TextInputEditText;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Executor;
 
@@ -45,10 +44,9 @@ import java.util.concurrent.Executor;
 @SuppressLint("MissingPermission")
 public class MainActivity extends Activity implements UpdateView {
 
+    private final BluetoothAdapter btAdapter = BluetoothAdapter.getDefaultAdapter();
     public Spinner pairedDevicesSpinner;
     public Spinner availableDevicesSpinner;
-    private BluetoothPermissionManager bluetoothPermissionManager;
-    private BluetoothAdapter btAdapter = BluetoothAdapter.getDefaultAdapter();
     private BluetoothDevice targetDevice;
     private BluetoothHidDevice hidDevice;
     private BroadcastReceiver receiver;
@@ -71,7 +69,6 @@ public class MainActivity extends Activity implements UpdateView {
     private HashMap<String, String> inputsMap;
 
 
-    @RequiresApi(api = Build.VERSION_CODES.S)
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -82,7 +79,7 @@ public class MainActivity extends Activity implements UpdateView {
             return insets;
         });
 
-        bluetoothPermissionManager = new BluetoothPermissionManager(this, this);
+        BluetoothPermissionManager bluetoothPermissionManager = new BluetoothPermissionManager(this, this);
         bluetoothPermissionManager.checkAndRequestPermissions();
 
 
@@ -135,7 +132,7 @@ public class MainActivity extends Activity implements UpdateView {
     }
 
     private void saveValues() {
-        inputValue = textInputEditText.getText().toString();
+        inputValue = Objects.requireNonNull(textInputEditText.getText()).toString();
         SharedPreferences prefs = getSharedPreferences("com.tresabhi.gyrocursor.preferences", MODE_PRIVATE);
         SharedPreferences.Editor editor = prefs.edit();
 
@@ -261,9 +258,7 @@ public class MainActivity extends Activity implements UpdateView {
 
 
         for (BluetoothDevice i : pairedDevices) {
-            if (availableDevices.contains(i)) {
-                availableDevices.remove(i);
-            }
+            availableDevices.remove(i);
         }
         updateAvailableDevicesSpinnerModel(availableDevices);
 
@@ -312,7 +307,7 @@ public class MainActivity extends Activity implements UpdateView {
                 if (BluetoothDevice.ACTION_FOUND.equals(intent.getAction())) {
 
                     BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-                    if (device.getName() != null) {
+                    if (device != null && device.getName() != null) {
                         if (!availableDevices.contains(device) && !pairedDevices.contains(device)) {
                             availableDevices.add(device);
                         }
@@ -372,7 +367,7 @@ public class MainActivity extends Activity implements UpdateView {
 
         findViewById(R.id.repeat_input).setOnClickListener(v -> {
             if (!isRepeatActive) {
-                lastInput = textInputEditText.getText().toString();
+                lastInput = Objects.requireNonNull(textInputEditText.getText()).toString();
                 textInputEditText.setText(inputValue);
                 isRepeatActive = true;
             } else {
@@ -435,16 +430,14 @@ public class MainActivity extends Activity implements UpdateView {
                 }
                 BluetoothDevice device = availableDevices.get(position - 1);
                 Log.d("mainpain", "Pairing with " + device.getName());
-                if (device != null) {
-                    if (device.getBondState() == BluetoothDevice.BOND_NONE) {
-                        boolean startedPairing = device.createBond();
-                        if (startedPairing) {
-                            toastMessage("Pairing with " + device.getName());
-                            updateAvailableDevicesSpinnerModel(availableDevices);
-                            updatePairedDevicesSpinnerModel(pairedDevices);
-                        } else {
-                            toastMessage("Failed to start pairing with " + device.getName());
-                        }
+                if (device.getBondState() == BluetoothDevice.BOND_NONE) {
+                    boolean startedPairing = device.createBond();
+                    if (startedPairing) {
+                        toastMessage("Pairing with " + device.getName());
+                        updateAvailableDevicesSpinnerModel(availableDevices);
+                        updatePairedDevicesSpinnerModel(pairedDevices);
+                    } else {
+                        toastMessage("Failed to start pairing with " + device.getName());
                     }
                 }
             }
@@ -561,10 +554,10 @@ public class MainActivity extends Activity implements UpdateView {
             reportMessage.add(report);
         }
 
-        sendReport(reportMessage, 0);
+        sendReport(reportMessage);
     }
 
-    private void sendReport(ArrayList<byte[]> report, int start) {
+    private void sendReport(ArrayList<byte[]> report) {
         Handler handler = new Handler(Looper.getMainLooper());
         handler.post(() -> {
             try {
@@ -574,13 +567,13 @@ public class MainActivity extends Activity implements UpdateView {
                     byte[] report2 = new byte[8];
                     report2[2] = 0x00;
 
-                    for (int i = start; i < report.size(); i++) {
+                    for (int i = 0; i < report.size(); i++) {
                         int finalI = i;
                         handler.postDelayed(() -> {
                             hidDevice.sendReport(targetDevice, SUBCLASS1_KEYBOARD, report.get(finalI));
                             hidDevice.sendReport(targetDevice, SUBCLASS1_KEYBOARD, report2);
                             currentByte += 1;
-                        }, i * 40); // 40ms delay between keystrokes
+                        }, i * 40L); // 40ms delay between keystrokes
                     }
 
                     // Final cleanup after all keystrokes
@@ -588,7 +581,7 @@ public class MainActivity extends Activity implements UpdateView {
                         hidDevice.sendReport(targetDevice, SUBCLASS1_KEYBOARD, report2);
                         reportSave.clear();
                         currentByte = 0;
-                    }, report.size() * 40);
+                    }, report.size() * 40L);
                 } else {
                     Log.d("Bluetooth", "Device is not in a connected state.");
                 }
@@ -816,7 +809,7 @@ public class MainActivity extends Activity implements UpdateView {
     }
 
     private byte[] getDescriptor() {
-        byte[] descriptor = new byte[]{
+        return new byte[]{
                 (byte) 0x05, (byte) 0x01,           // Usage Page (Generic Desktop)
                 (byte) 0x09, (byte) 0x06,           // Usage (Keyboard)
                 (byte) 0xA1, (byte) 0x01,           // Collection (Application)
@@ -861,7 +854,6 @@ public class MainActivity extends Activity implements UpdateView {
 
                 (byte) 0xC0                          // End Collection (Application)
         };
-        return descriptor;
     }
 
     private ArrayList<String> getFormattedInputList() {
