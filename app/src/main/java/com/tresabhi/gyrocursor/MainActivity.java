@@ -62,7 +62,6 @@ public class MainActivity extends Activity implements UpdateView {
     private boolean isRepeatActive = false;
     private boolean editMode = false;
     private int regState;
-    private int currentByte;
     private boolean isDialogShown = false;
 
     private ArrayList<byte[]> reportSave;
@@ -171,25 +170,17 @@ public class MainActivity extends Activity implements UpdateView {
                         @Override
                         public void onConnectionStateChanged(BluetoothDevice device, final int state) {
                             if (device.equals(targetDevice)) {
-                                Runnable statusUpdateRunnable = new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        runOnUiThread(new Runnable() {
-                                            @Override
-                                            public void run() {
-                                                if (state == BluetoothProfile.STATE_DISCONNECTED) {
-                                                    logMessage("mainpain", "HID Device currently disconnected from: " + device.getName());
-                                                } else if (state == BluetoothProfile.STATE_CONNECTING) {
-                                                    toastMessage("Connecting...");
-                                                } else if (state == BluetoothProfile.STATE_CONNECTED) {
-                                                    toastMessage("Connected");
-                                                } else if (state == BluetoothProfile.STATE_DISCONNECTING) {
-                                                    logMessage("mainpain", "HID Device currently disconnecting from: " + device.getName());
-                                                }
-                                            }
-                                        });
+                                Runnable statusUpdateRunnable = () -> runOnUiThread(() -> {
+                                    if (state == BluetoothProfile.STATE_DISCONNECTED) {
+                                        logMessage("mainpain", "HID Device currently disconnected from: " + device.getName());
+                                    } else if (state == BluetoothProfile.STATE_CONNECTING) {
+                                        toastMessage("Connecting...");
+                                    } else if (state == BluetoothProfile.STATE_CONNECTED) {
+                                        toastMessage("Connected");
+                                    } else if (state == BluetoothProfile.STATE_DISCONNECTING) {
+                                        logMessage("mainpain", "HID Device currently disconnecting from: " + device.getName());
                                     }
-                                };
+                                });
 
                                 Thread statusUpdateThread = new Thread(statusUpdateRunnable);
 
@@ -250,7 +241,7 @@ public class MainActivity extends Activity implements UpdateView {
         Set<BluetoothDevice> pairedDevicesSet = btAdapter.getBondedDevices();
         pairedDevices.clear();
         pairedDevices.addAll(pairedDevicesSet);
-        pairedDevicesSpinner = ((Activity) this).findViewById(R.id.devices);
+        pairedDevicesSpinner = this.findViewById(R.id.devices);
 
         int currentSelection = pairedDevicesSpinner.getSelectedItemPosition();
 
@@ -345,7 +336,7 @@ public class MainActivity extends Activity implements UpdateView {
 
     private void buttonListener() {
         findViewById(R.id.inputbutton).setOnClickListener(v -> {
-            inputValue = textInputEditText.getText().toString();
+            inputValue = Objects.requireNonNull(textInputEditText.getText()).toString();
             if (!inputValue.isEmpty() && targetDevice != null && hidDevice.getConnectionState(targetDevice) == BluetoothProfile.STATE_CONNECTED) {
                 try {
                     convertTextToHidReport(inputValue);
@@ -530,7 +521,6 @@ public class MainActivity extends Activity implements UpdateView {
 
     private void convertTextToHidReport(String text) throws InterruptedException {
         ArrayList<byte[]> reportMessage = new ArrayList<>();
-        currentByte = 0;
         byte[] report = new byte[8];
 
         // HID report size for a keyboard is usually 8 bytes
@@ -572,7 +562,6 @@ public class MainActivity extends Activity implements UpdateView {
                         handler.postDelayed(() -> {
                             hidDevice.sendReport(targetDevice, SUBCLASS1_KEYBOARD, report.get(finalI));
                             hidDevice.sendReport(targetDevice, SUBCLASS1_KEYBOARD, report2);
-                            currentByte += 1;
                         }, i * 40L); // 40ms delay between keystrokes
                     }
 
@@ -580,7 +569,6 @@ public class MainActivity extends Activity implements UpdateView {
                     handler.postDelayed(() -> {
                         hidDevice.sendReport(targetDevice, SUBCLASS1_KEYBOARD, report2);
                         reportSave.clear();
-                        currentByte = 0;
                     }, report.size() * 40L);
                 } else {
                     Log.d("Bluetooth", "Device is not in a connected state.");
@@ -810,49 +798,36 @@ public class MainActivity extends Activity implements UpdateView {
 
     private byte[] getDescriptor() {
         return new byte[]{
-                (byte) 0x05, (byte) 0x01,           // Usage Page (Generic Desktop)
-                (byte) 0x09, (byte) 0x06,           // Usage (Keyboard)
-                (byte) 0xA1, (byte) 0x01,           // Collection (Application)
-                (byte) 0x05, (byte) 0x07,           // Usage Page (Key Codes)
-                (byte) 0x19, (byte) 0xE0,           // Usage Minimum (224)
-                (byte) 0x29, (byte) 0xE7,           // Usage Maximum (231)
-                (byte) 0x15, (byte) 0x00,           // Logical Minimum (0)
-                (byte) 0x25, (byte) 0x01,           // Logical Maximum (1)
-                (byte) 0x75, (byte) 0x01,           // Report Size (1)
-                (byte) 0x95, (byte) 0x08,           // Report Count (8)
-                (byte) 0x81, (byte) 0x02,           // Input (Data, Variable, Absolute)
+                (byte) 0x05, (byte) 0x01,       // Usage Page (Generic Desktop)
+                (byte) 0x09, (byte) 0x02,       // Usage (Mouse)
+                (byte) 0xA1, (byte) 0x01,       // Collection (Application)
+                (byte) 0x09, (byte) 0x01,       // Usage (Pointer)
+                (byte) 0xA1, (byte) 0x00,       // Collection (Physical)
 
-                (byte) 0x95, (byte) 0x01,           // Report Count (1)
-                (byte) 0x75, (byte) 0x08,           // Report Size (8)
-                (byte) 0x81, (byte) 0x01,           // Input (Constant), reserved byte(1)
+                (byte) 0x05, (byte) 0x09,       // Usage Page (Buttons)
+                (byte) 0x19, (byte) 0x01,
+                (byte) 0x29, (byte) 0x03,
+                (byte) 0x15, (byte) 0x00,
+                (byte) 0x25, (byte) 0x01,
+                (byte) 0x95, (byte) 0x03,
+                (byte) 0x75, (byte) 0x01,
+                (byte) 0x81, (byte) 0x02,
 
-                (byte) 0x95, (byte) 0x05,           // Report Count (5)
-                (byte) 0x75, (byte) 0x01,           // Report Size (1)
-                (byte) 0x05, (byte) 0x08,           // Usage Page (LEDs)
-                (byte) 0x19, (byte) 0x01,           // Usage Minimum (1)
-                (byte) 0x29, (byte) 0x05,           // Usage Maximum (5)
-                (byte) 0x91, (byte) 0x02,           // Output (Data, Variable, Absolute), LED report
-                (byte) 0x95, (byte) 0x01,           // Report Count (1)
-                (byte) 0x75, (byte) 0x03,           // Report Size (3)
-                (byte) 0x91, (byte) 0x01,           // Output (Constant), LED report padding
+                (byte) 0x95, (byte) 0x01,
+                (byte) 0x75, (byte) 0x05,
+                (byte) 0x81, (byte) 0x01,
 
-                (byte) 0x95, (byte) 0x06,           // Report Count (6)
-                (byte) 0x75, (byte) 0x08,           // Report Size (8)
-                (byte) 0x15, (byte) 0x00,           // Logical Minimum (0)
-                (byte) 0x25, (byte) 0x65,           // Logical Maximum (101)
-                (byte) 0x05, (byte) 0x07,           // Usage Page (Key Codes)
-                (byte) 0x19, (byte) 0x00,           // Usage Minimum (0)
-                (byte) 0x29, (byte) 0x65,           // Usage Maximum (101)
-                (byte) 0x81, (byte) 0x00,           // Input (Data, Array), Key array (6 bytes)
+                (byte) 0x05, (byte) 0x01,
+                (byte) 0x09, (byte) 0x30,       // X
+                (byte) 0x09, (byte) 0x31,       // Y
+                (byte) 0x15, (byte) 0x81,
+                (byte) 0x25, (byte) 0x7F,
+                (byte) 0x75, (byte) 0x08,
+                (byte) 0x95, (byte) 0x02,
+                (byte) 0x81, (byte) 0x06,
 
-                (byte) 0x09, (byte) 0x05,           // Usage (Vendor Defined)
-                (byte) 0x15, (byte) 0x00,           // Logical Minimum (0)
-                (byte) 0x26, (byte) 0xFF, (byte) 0x00, // Logical Maximum (255)
-                (byte) 0x75, (byte) 0x08,           // Report Size (8)
-                (byte) 0x95, (byte) 0x02,           // Report Count (2)
-                (byte) 0xB1, (byte) 0x02,           // Feature (Data, Variable, Absolute)
-
-                (byte) 0xC0                          // End Collection (Application)
+                (byte) 0xC0,
+                (byte) 0xC0
         };
     }
 
