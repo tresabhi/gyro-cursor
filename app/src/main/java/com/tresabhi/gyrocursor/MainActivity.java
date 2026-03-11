@@ -43,7 +43,7 @@ import java.util.concurrent.Executor;
 
 
 @SuppressLint("MissingPermission")
-public class Controller extends Activity implements UpdateView {
+public class MainActivity extends Activity implements UpdateView {
 
     public Spinner pairedDevicesSpinner;
     public Spinner availableDevicesSpinner;
@@ -86,7 +86,7 @@ public class Controller extends Activity implements UpdateView {
         bluetoothPermissionManager.checkAndRequestPermissions();
 
 
-        SharedPreferences prefs = getSharedPreferences("BTKBV2", MODE_PRIVATE);
+        SharedPreferences prefs = getSharedPreferences("com.tresabhi.gyrocursor.preferences", MODE_PRIVATE);
         inputValue = prefs.getString("input_value", "");
         textInputEditText = findViewById(R.id.TextInputEditLayout);
         textInputEditText.setText(inputValue);
@@ -136,7 +136,7 @@ public class Controller extends Activity implements UpdateView {
 
     private void saveValues() {
         inputValue = textInputEditText.getText().toString();
-        SharedPreferences prefs = getSharedPreferences("BTKBV2", MODE_PRIVATE);
+        SharedPreferences prefs = getSharedPreferences("com.tresabhi.gyrocursor.preferences", MODE_PRIVATE);
         SharedPreferences.Editor editor = prefs.edit();
 
         editor.putString("input_value", inputValue);
@@ -149,7 +149,7 @@ public class Controller extends Activity implements UpdateView {
     }
 
     private void loadValues() {
-        SharedPreferences prefs = getSharedPreferences("BTKBV2", MODE_PRIVATE);
+        SharedPreferences prefs = getSharedPreferences("com.tresabhi.gyrocursor.preferences", MODE_PRIVATE);
 
         inputsMap = new HashMap<>();
         for (int i = 1; i <= 5; i++) {

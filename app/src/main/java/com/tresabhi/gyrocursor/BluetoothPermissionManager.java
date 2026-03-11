@@ -20,9 +20,9 @@ public class BluetoothPermissionManager {
     private static final int REQUEST_BLUETOOTH_ADMIN = 5;
 
     private final Context context;
-    private final Controller controller;
+    private final MainActivity controller;
 
-    public BluetoothPermissionManager(Context context, Controller controller) {
+    public BluetoothPermissionManager(Context context, MainActivity controller) {
         this.context = context;
         this.controller = controller;
     }
@@ -32,25 +32,25 @@ public class BluetoothPermissionManager {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN)
                     != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions((Controller) context,
+                ActivityCompat.requestPermissions((MainActivity) context,
                         new String[]{Manifest.permission.BLUETOOTH_SCAN},
                         REQUEST_BLUETOOTH_SCAN);
             }
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT)
                     != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions((Controller) context,
+                ActivityCompat.requestPermissions((MainActivity) context,
                         new String[]{Manifest.permission.BLUETOOTH_CONNECT},
                         REQUEST_BLUETOOTH_CONNECT);
             }
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_ADVERTISE)
                     != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions((Controller) context,
+                ActivityCompat.requestPermissions((MainActivity) context,
                         new String[]{Manifest.permission.BLUETOOTH_ADVERTISE},
                         REQUEST_BLUETOOTH_ADVERTISE);
             }
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_ADMIN)
                     != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions((Controller) context,
+                ActivityCompat.requestPermissions((MainActivity) context,
                         new String[]{Manifest.permission.BLUETOOTH_ADMIN},
                         REQUEST_BLUETOOTH_ADMIN);
             }
@@ -58,7 +58,7 @@ public class BluetoothPermissionManager {
 
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
                 != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions((Controller) context,
+            ActivityCompat.requestPermissions((MainActivity) context,
                     new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
                     REQUEST_LOCATION_PERMISSION);
         }
