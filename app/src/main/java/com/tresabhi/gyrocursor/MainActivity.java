@@ -798,13 +798,13 @@ public class MainActivity extends Activity implements UpdateView {
 
     private byte[] getDescriptor() {
         return new byte[]{
-                (byte) 0x05, (byte) 0x01,       // Usage Page (Generic Desktop)
-                (byte) 0x09, (byte) 0x02,       // Usage (Mouse)
-                (byte) 0xA1, (byte) 0x01,       // Collection (Application)
-                (byte) 0x09, (byte) 0x01,       // Usage (Pointer)
-                (byte) 0xA1, (byte) 0x00,       // Collection (Physical)
+                (byte) 0x05, (byte) 0x01,
+                (byte) 0x09, (byte) 0x02,
+                (byte) 0xA1, (byte) 0x01,
+                (byte) 0x09, (byte) 0x01,
+                (byte) 0xA1, (byte) 0x00,
 
-                (byte) 0x05, (byte) 0x09,       // Usage Page (Buttons)
+                (byte) 0x05, (byte) 0x09,
                 (byte) 0x19, (byte) 0x01,
                 (byte) 0x29, (byte) 0x03,
                 (byte) 0x15, (byte) 0x00,
@@ -818,8 +818,8 @@ public class MainActivity extends Activity implements UpdateView {
                 (byte) 0x81, (byte) 0x01,
 
                 (byte) 0x05, (byte) 0x01,
-                (byte) 0x09, (byte) 0x30,       // X
-                (byte) 0x09, (byte) 0x31,       // Y
+                (byte) 0x09, (byte) 0x30,
+                (byte) 0x09, (byte) 0x31,
                 (byte) 0x15, (byte) 0x81,
                 (byte) 0x25, (byte) 0x7F,
                 (byte) 0x75, (byte) 0x08,

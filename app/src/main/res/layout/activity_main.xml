@@ -28,7 +28,8 @@
             android:overScrollMode="always"
             android:scrollbarStyle="insideInset"
             android:scrollbars="vertical"
-            android:scrollHorizontally="false" />
+            android:scrollHorizontally="false"
+            android:visibility="gone" />
     </com.google.android.material.textfield.TextInputLayout>
 
     <Button
@@ -38,7 +39,7 @@
         android:layout_marginStart="16dp"
         android:layout_marginTop="4dp"
         android:layout_marginEnd="16dp"
-        android:text="Input Text"
+        android:text="Debug Cursor Movement"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.5"
         app:layout_constraintStart_toStartOf="parent"
@@ -62,7 +63,8 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Repeat Input"
-        app:layout_constraintTop_toBottomOf="@id/inputbutton" />
+        app:layout_constraintTop_toBottomOf="@id/inputbutton"
+        tools:visibility="gone" />
 
     <Switch
         android:id="@+id/edit"
@@ -72,7 +74,8 @@
         android:layout_marginEnd="20dp"
         android:text="Edit Quick Inputs"
         app:layout_constraintEnd_toEndOf="@id/paireddevices"
-        app:layout_constraintTop_toBottomOf="@id/inputbutton" />
+        app:layout_constraintTop_toBottomOf="@id/inputbutton"
+        tools:visibility="gone" />
 
     <Spinner
         android:id="@+id/inputs"
