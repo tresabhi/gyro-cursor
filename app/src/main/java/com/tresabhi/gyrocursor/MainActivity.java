@@ -24,6 +24,7 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.Switch;
@@ -74,13 +75,16 @@ public class MainActivity extends Activity implements UpdateView {
 
         LinearLayout container = findViewById(R.id.container);
         String[] devices = {"TRESLAPTOP", "OORT_CLOUD", "TrèsAuditory", "fedora", "Someone’s iPad", "TrèsTemporal"};
+        int index = 0;
 
         for (String device : devices) {
             View entry = getLayoutInflater().inflate(R.layout.device_selector_entry_mixed, container, false);
             TextView nameView = entry.findViewById(R.id.name);
+            ImageView iconView = entry.findViewById(R.id.imageView);
 
             nameView.setText(device);
             container.addView(entry);
+            iconView.setImageResource(index++ % 2 == 0 ? R.drawable.mixed_icon : R.drawable.computer_icon);
         }
 
 //        super.onCreate(savedInstanceState);
