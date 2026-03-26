@@ -798,32 +798,29 @@ public class MainActivity extends Activity implements UpdateView {
 
     private byte[] getDescriptor() {
         return new byte[]{
-                (byte) 0x05, (byte) 0x01,
-                (byte) 0x09, (byte) 0x02,
-                (byte) 0xA1, (byte) 0x01,
-                (byte) 0x09, (byte) 0x01,
-                (byte) 0xA1, (byte) 0x00,
-
-                (byte) 0x05, (byte) 0x09,
-                (byte) 0x19, (byte) 0x01,
-                (byte) 0x29, (byte) 0x03,
-                (byte) 0x15, (byte) 0x00,
-                (byte) 0x25, (byte) 0x01,
-                (byte) 0x95, (byte) 0x03,
-                (byte) 0x75, (byte) 0x01,
-                (byte) 0x81, (byte) 0x02,
-
-                (byte) 0x95, (byte) 0x01,
-                (byte) 0x75, (byte) 0x05,
-                (byte) 0x81, (byte) 0x01,
-
-                (byte) 0x05, (byte) 0x01,
+                (byte) 0x05, (byte) 0x01, // Usage Page (Generic Desktop Ctrls)
+                (byte) 0x09, (byte) 0x02, // Usage (Mouse)
+                (byte) 0xA1, (byte) 0x01, // Collection (Application)
+                (byte) 0x09, (byte) 0x01, //   Usage (Pointer)
+                (byte) 0xA1, (byte) 0x00, //   Collection (Physical)
+                (byte) 0x05, (byte) 0x09, //     Usage Page (Button)
+                (byte) 0x19, (byte) 0x01, //     Usage Minimum (1)
+                (byte) 0x29, (byte) 0x03, //     Usage Maximum (3)
+                (byte) 0x15, (byte) 0x00, //     Logical Minimum (0)
+                (byte) 0x25, (byte) 0x01, //     Logical Maximum (1)
+                (byte) 0x95, (byte) 0x03, //     Report Count (3)
+                (byte) 0x75, (byte) 0x01, //     Report Size (1)
+                (byte) 0x81, (byte) 0x02, //     Input (Data, Var, Abs)
+                (byte) 0x95, (byte) 0x01, //     Report Count (1)
+                (byte) 0x75, (byte) 0x05, //     Report Size (5)
+                (byte) 0x81, (byte) 0x03, //     Input (Cnst, Var, Abs)
+                (byte) 0x05, (byte) 0x01, //
                 (byte) 0x09, (byte) 0x30,
                 (byte) 0x09, (byte) 0x31,
                 (byte) 0x15, (byte) 0x81,
                 (byte) 0x25, (byte) 0x7F,
                 (byte) 0x75, (byte) 0x08,
-                (byte) 0x95, (byte) 0x02,
+                (byte) 0x95, (byte) 0x02, // also 0x03
                 (byte) 0x81, (byte) 0x06,
 
                 (byte) 0xC0,
