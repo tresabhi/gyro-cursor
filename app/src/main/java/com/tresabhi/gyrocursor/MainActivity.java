@@ -24,13 +24,11 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.EditText;
+import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.Switch;
+import android.widget.TextView;
 import android.widget.Toast;
-
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
 
 import com.google.android.material.textfield.TextInputEditText;
 
@@ -71,32 +69,46 @@ public class MainActivity extends Activity implements UpdateView {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
-            Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
-            return insets;
-        });
 
-        BluetoothPermissionManager bluetoothPermissionManager = new BluetoothPermissionManager(this, this);
-        bluetoothPermissionManager.checkAndRequestPermissions();
+        setContentView(R.layout.device_selector);
 
+        LinearLayout container = findViewById(R.id.container);
+        String[] devices = {"TRESLAPTOP", "OORT_CLOUD", "TrèsAuditory", "fedora", "Someone’s iPad", "TrèsTemporal"};
 
-        SharedPreferences prefs = getSharedPreferences("com.tresabhi.gyrocursor.preferences", MODE_PRIVATE);
-        inputValue = prefs.getString("input_value", "");
-        textInputEditText = findViewById(R.id.TextInputEditLayout);
-        textInputEditText.setText(inputValue);
+        for (String device : devices) {
+            View entry = getLayoutInflater().inflate(R.layout.device_selector_entry_mixed, container, false);
+            TextView nameView = entry.findViewById(R.id.name);
 
+            nameView.setText(device);
+            container.addView(entry);
+        }
 
-        getProxy();
-        updatePairedDevicesSpinnerModel(pairedDevices);
-        updateAvailableDevicesSpinnerModel(availableDevices);
-        initializeInputsSpinner();
-        findAvailableDevices();
-        spinnerListener();
-        buttonListener();
-        loadValues();
-
+//        super.onCreate(savedInstanceState);
+//        setContentView(R.layout.activity_main);
+//        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
+//            Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+//            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
+//            return insets;
+//        });
+//
+//        BluetoothPermissionManager bluetoothPermissionManager = new BluetoothPermissionManager(this, this);
+//        bluetoothPermissionManager.checkAndRequestPermissions();
+//
+//
+//        SharedPreferences prefs = getSharedPreferences("com.tresabhi.gyrocursor.preferences", MODE_PRIVATE);
+//        inputValue = prefs.getString("input_value", "");
+//        textInputEditText = findViewById(R.id.TextInputEditLayout);
+//        textInputEditText.setText(inputValue);
+//
+//
+//        getProxy();
+//        updatePairedDevicesSpinnerModel(pairedDevices);
+//        updateAvailableDevicesSpinnerModel(availableDevices);
+//        initializeInputsSpinner();
+//        findAvailableDevices();
+//        spinnerListener();
+//        buttonListener();
+//        loadValues();
     }
 
     @Override
