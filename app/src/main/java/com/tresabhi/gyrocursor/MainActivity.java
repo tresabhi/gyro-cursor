@@ -36,7 +36,6 @@ import com.google.android.material.textfield.TextInputEditText;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.Executor;
 
 
@@ -51,6 +50,7 @@ public class MainActivity extends Activity implements UpdateView {
     private BroadcastReceiver receiver;
     private Spinner inputsSpinner;
     private TextInputEditText textInputEditText;
+    private LinearLayout pairedContainer;
 
     private ArrayList<BluetoothDevice> pairedDevices = new ArrayList<>();
     private ArrayList<BluetoothDevice> availableDevices = new ArrayList<>();
@@ -73,17 +73,17 @@ public class MainActivity extends Activity implements UpdateView {
 
         setContentView(R.layout.device_selector);
 
-        LinearLayout container = findViewById(R.id.container);
+        pairedContainer = findViewById(R.id.container);
         String[] devices = {"TRESLAPTOP", "OORT_CLOUD", "TrèsAuditory", "fedora", "Someone’s iPad", "TrèsTemporal"};
         int index = 0;
 
         for (String device : devices) {
-            View entry = getLayoutInflater().inflate(R.layout.device_selector_entry_mixed, container, false);
+            View entry = getLayoutInflater().inflate(R.layout.device_selector_entry_mixed, pairedContainer, false);
             TextView nameView = entry.findViewById(R.id.name);
             ImageView iconView = entry.findViewById(R.id.imageView);
 
             nameView.setText(device);
-            container.addView(entry);
+            pairedContainer.addView(entry);
             iconView.setImageResource(index++ % 2 == 0 ? R.drawable.mixed_icon : R.drawable.computer_icon);
         }
 
@@ -101,8 +101,8 @@ public class MainActivity extends Activity implements UpdateView {
 //        textInputEditText = findViewById(R.id.TextInputEditLayout);
 //        textInputEditText.setText(inputValue);
 //
-//        getProxy();
-//        updatePairedDevicesSpinnerModel(pairedDevices);
+        getProxy();
+        updatePairedDevicesSpinnerModel(pairedDevices);
 //        updateAvailableDevicesSpinnerModel(availableDevices);
 //        initializeInputsSpinner();
 //        findAvailableDevices();
@@ -250,33 +250,38 @@ public class MainActivity extends Activity implements UpdateView {
     }
 
     private void updatePairedDevicesSpinnerModel(ArrayList<BluetoothDevice> newPairedDevices) {
-        Set<BluetoothDevice> pairedDevicesSet = btAdapter.getBondedDevices();
+
         pairedDevices.clear();
-        pairedDevices.addAll(pairedDevicesSet);
-        pairedDevicesSpinner = this.findViewById(R.id.devices);
+        pairedDevices.addAll(btAdapter.getBondedDevices());
 
-        int currentSelection = pairedDevicesSpinner.getSelectedItemPosition();
+        pairedContainer.removeAllViews();
 
-        pairedDevices = newPairedDevices;
+        int index = 0;
 
+        for (BluetoothDevice device : pairedDevices) {
 
-        for (BluetoothDevice i : pairedDevices) {
-            availableDevices.remove(i);
-        }
-        updateAvailableDevicesSpinnerModel(availableDevices);
+            View entry = getLayoutInflater().inflate(
+                    R.layout.device_selector_entry_mixed,
+                    pairedContainer,
+                    false
+            );
 
-        ArrayList<String> names = new ArrayList<>();
-        names.add("Paired Devices");
-        for (BluetoothDevice i : pairedDevices) {
-            names.add(i.getName());
-        }
+            TextView nameView = entry.findViewById(R.id.name);
+            ImageView iconView = entry.findViewById(R.id.imageView);
 
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, names);
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        pairedDevicesSpinner.setAdapter(adapter);
+            String name = device.getName() != null ? device.getName() : "Unknown device";
+            nameView.setText(name);
 
-        if (currentSelection >= 0 && currentSelection < adapter.getCount()) {
-            pairedDevicesSpinner.setSelection(currentSelection);
+            iconView.setImageResource(
+                    index++ % 2 == 0 ? R.drawable.mixed_icon : R.drawable.computer_icon
+            );
+
+            entry.setOnClickListener(v -> {
+                targetDevice = device;
+                connect();
+            });
+
+            pairedContainer.addView(entry);
         }
     }
 
