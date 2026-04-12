@@ -87,23 +87,19 @@ public class MainActivity extends Activity implements UpdateView {
             iconView.setImageResource(index++ % 2 == 0 ? R.drawable.mixed_icon : R.drawable.computer_icon);
         }
 
-//        super.onCreate(savedInstanceState);
-//        setContentView(R.layout.activity_main);
 //        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
 //            Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
 //            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
 //            return insets;
 //        });
 //
-//        BluetoothPermissionManager bluetoothPermissionManager = new BluetoothPermissionManager(this, this);
-//        bluetoothPermissionManager.checkAndRequestPermissions();
-//
+        BluetoothPermissionManager bluetoothPermissionManager = new BluetoothPermissionManager(this, this);
+        bluetoothPermissionManager.checkAndRequestPermissions();
 //
 //        SharedPreferences prefs = getSharedPreferences("com.tresabhi.gyrocursor.preferences", MODE_PRIVATE);
 //        inputValue = prefs.getString("input_value", "");
 //        textInputEditText = findViewById(R.id.TextInputEditLayout);
 //        textInputEditText.setText(inputValue);
-//
 //
 //        getProxy();
 //        updatePairedDevicesSpinnerModel(pairedDevices);
@@ -147,17 +143,17 @@ public class MainActivity extends Activity implements UpdateView {
     }
 
     private void saveValues() {
-        inputValue = Objects.requireNonNull(textInputEditText.getText()).toString();
-        SharedPreferences prefs = getSharedPreferences("com.tresabhi.gyrocursor.preferences", MODE_PRIVATE);
-        SharedPreferences.Editor editor = prefs.edit();
-
-        editor.putString("input_value", inputValue);
-
-        for (String key : inputsMap.keySet()) {
-            editor.putString("input_" + key, inputsMap.get(key));
-        }
-
-        editor.apply();
+//        inputValue = Objects.requireNonNull(textInputEditText.getText()).toString();
+//        SharedPreferences prefs = getSharedPreferences("com.tresabhi.gyrocursor.preferences", MODE_PRIVATE);
+//        SharedPreferences.Editor editor = prefs.edit();
+//
+//        editor.putString("input_value", inputValue);
+//
+//        for (String key : inputsMap.keySet()) {
+//            editor.putString("input_" + key, inputsMap.get(key));
+//        }
+//
+//        editor.apply();
     }
 
     private void loadValues() {
