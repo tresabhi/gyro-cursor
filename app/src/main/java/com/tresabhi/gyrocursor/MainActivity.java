@@ -2,6 +2,7 @@ package com.tresabhi.gyrocursor;
 
 import static android.bluetooth.BluetoothHidDevice.SUBCLASS1_KEYBOARD;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -15,13 +16,12 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
-import android.view.MotionEvent;
 import android.view.View;
-import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.ImageView;
@@ -31,6 +31,7 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.core.app.ActivityCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
@@ -46,6 +47,9 @@ import java.util.concurrent.Executor;
 public class MainActivity extends Activity implements UpdateView {
 
     private final BluetoothAdapter btAdapter = BluetoothAdapter.getDefaultAdapter();
+    private final ArrayList<BluetoothDevice> pairedDevices = new ArrayList<>();
+    private final ArrayList<BluetoothDevice> discoveredDevices = new ArrayList<>();
+    private final HashMap<String, BluetoothDevice> discoveredMap = new HashMap<>();
     public Spinner pairedDevicesSpinner;
     public Spinner availableDevicesSpinner;
     private BluetoothDevice targetDevice;
@@ -54,9 +58,6 @@ public class MainActivity extends Activity implements UpdateView {
     private Spinner inputsSpinner;
     private TextInputEditText textInputEditText;
     private LinearLayout pairedContainer;
-
-    private ArrayList<BluetoothDevice> pairedDevices = new ArrayList<>();
-    private ArrayList<BluetoothDevice> availableDevices = new ArrayList<>();
     private ArrayAdapter<String> inputsAdapter;
 
     private String inputValue;
@@ -72,6 +73,7 @@ public class MainActivity extends Activity implements UpdateView {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        Log.d("BT_DEBUG", "onCreate ran");
         super.onCreate(savedInstanceState);
 
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
@@ -115,13 +117,26 @@ public class MainActivity extends Activity implements UpdateView {
 //        textInputEditText.setText(inputValue);
 //
         getProxy();
-        updatePairedDevicesSpinnerModel(pairedDevices);
+        rebuildDeviceUI();
 //        updateAvailableDevicesSpinnerModel(availableDevices);
 //        initializeInputsSpinner();
-//        findAvailableDevices();
+        findAvailableDevices();
 //        spinnerListener();
 //        buttonListener();
 //        loadValues();
+
+        if (btAdapter.isDiscovering()) {
+            btAdapter.cancelDiscovery();
+        }
+
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN)
+                != PackageManager.PERMISSION_GRANTED) {
+            Log.e("BT_DEBUG", "BLUETOOTH_SCAN not granted");
+            return;
+        }
+
+        boolean started = btAdapter.startDiscovery();
+        Log.d("BT_DEBUG", "startDiscovery returned=" + started);
     }
 
     @Override
@@ -262,32 +277,6 @@ public class MainActivity extends Activity implements UpdateView {
         hidDevice.registerApp(sdp, null, null, executor, callback);
     }
 
-    private void updatePairedDevicesSpinnerModel(ArrayList<BluetoothDevice> newPairedDevices) {
-
-        pairedDevices.clear();
-        pairedDevices.addAll(btAdapter.getBondedDevices());
-
-        pairedContainer.removeAllViews();
-
-        addSectionTitle("Paired");
-
-        int index = 0;
-
-        for (BluetoothDevice device : pairedDevices) {
-
-            addDeviceRow(device, index++);
-        }
-
-        addSectionTitle("Other Devices");
-
-        for (BluetoothDevice device : availableDevices) {
-
-            if (pairedDevices.contains(device)) continue;
-
-            addDeviceRow(device, index++);
-        }
-    }
-
     private void addSectionTitle(String title) {
         View header = getLayoutInflater().inflate(
                 R.layout.device_selector_section_header,
@@ -301,6 +290,7 @@ public class MainActivity extends Activity implements UpdateView {
         pairedContainer.addView(header);
     }
 
+
     private void addDeviceRow(BluetoothDevice device, int index) {
 
         View entry = getLayoutInflater().inflate(
@@ -312,7 +302,7 @@ public class MainActivity extends Activity implements UpdateView {
         TextView nameView = entry.findViewById(R.id.name);
         ImageView iconView = entry.findViewById(R.id.imageView);
 
-        String name = device.getName() != null ? device.getName() : "Unknown device";
+        String name = device.getName() != null ? device.getName() : device.getAddress();
         nameView.setText(name);
 
         iconView.setImageResource(
@@ -327,53 +317,77 @@ public class MainActivity extends Activity implements UpdateView {
         pairedContainer.addView(entry);
     }
 
-    private void updateAvailableDevicesSpinnerModel(ArrayList<BluetoothDevice> newAvailableDevices) {
 
-        availableDevicesSpinner = ((Activity) this).findViewById(R.id.paireddevices);
+    private void rebuildDeviceUI() {
+        pairedContainer.removeAllViews();
 
-        int currentSelection = availableDevicesSpinner.getSelectedItemPosition();
+        pairedDevices.clear();
+        pairedDevices.addAll(btAdapter.getBondedDevices());
 
-        availableDevices = newAvailableDevices;
+        addSectionTitle("Paired");
 
-        ArrayList<String> names = new ArrayList<>();
-        names.add("Available Devices");
-        for (BluetoothDevice i : availableDevices) {
-            names.add(i.getName());
+        int index = 0;
+        for (BluetoothDevice device : pairedDevices) {
+            addDeviceRow(device, index++);
         }
 
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, names);
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        availableDevicesSpinner.setAdapter(adapter);
+        addSectionTitle("Other Devices");
 
-        if (currentSelection >= 0 && currentSelection < adapter.getCount()) {
-            availableDevicesSpinner.setSelection(currentSelection);
+        for (BluetoothDevice device : discoveredDevices) {
+            if (isPaired(device)) continue;
+            addDeviceRow(device, index++);
         }
     }
+
+    private boolean isPaired(BluetoothDevice device) {
+        for (BluetoothDevice d : pairedDevices) {
+            if (d.getAddress().equals(device.getAddress())) return true;
+        }
+        return false;
+    }
+
 
     private void findAvailableDevices() {
 
         receiver = new BroadcastReceiver() {
+            @SuppressLint("MissingPermission")
             public void onReceive(Context context, Intent intent) {
-                if (BluetoothDevice.ACTION_FOUND.equals(intent.getAction())) {
+                Log.d("BT_DEBUG", "ACTION_RECEIVED: " + intent.getAction());
 
-                    BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-                    if (device != null && device.getName() != null) {
-                        if (!availableDevices.contains(device) && !pairedDevices.contains(device)) {
-                            availableDevices.add(device);
-                        }
-                        updateAvailableDevicesSpinnerModel(availableDevices);
-                    }
+                if (!BluetoothDevice.ACTION_FOUND.equals(intent.getAction())) return;
+
+                BluetoothDevice device =
+                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+
+                if (device == null || device.getAddress() == null) return;
+
+                String addr = device.getAddress();
+
+                if (!discoveredMap.containsKey(addr)) {
+                    discoveredMap.put(addr, device);
+                    discoveredDevices.add(device);
+
+                    runOnUiThread(() -> rebuildDeviceUI());
+
+                    Log.d("BT_DEBUG", "RAW DEVICE: name=" + device.getName() + " addr=" + device.getAddress());
                 }
+
+                Log.d("BT_DEBUG", "DEVICE_EVENT: " + device);
             }
         };
 
         IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
-        registerReceiver(receiver, filter);
+        Log.d("BT_DEBUG", "IntentFilter set for ACTION_FOUND");
 
-        if (btAdapter != null && !btAdapter.isDiscovering()) {
-            logMessage("mainpain", "Discovery started successfully");
-            btAdapter.startDiscovery();
+        registerReceiver(receiver, filter);
+        Log.d("BT_DEBUG", "Receiver registered");
+
+
+        if (btAdapter.isDiscovering()) {
+            btAdapter.cancelDiscovery();
         }
+
+        btAdapter.startDiscovery();
     }
 
     private void connect() {
@@ -449,91 +463,91 @@ public class MainActivity extends Activity implements UpdateView {
         inputsSpinner.setAdapter(inputsAdapter);
     }
 
-    private void spinnerListener() {
-        pairedDevicesSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, android.view.View view, int position, long id) {
-                hidDevice.disconnect(targetDevice);
-                Log.e("mainpain", "position: " + position);
-                if (position > 0) {
-                    targetDevice = pairedDevices.get(position - 1);
-                } else {
-                    hidDevice.disconnect(targetDevice);
-                }
-                if (targetDevice != null && hidDevice != null) {
-                    connect();
-                }
-            }
+//    private void spinnerListener() {
+//        pairedDevicesSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+//            @Override
+//            public void onItemSelected(AdapterView<?> parent, android.view.View view, int position, long id) {
+//                hidDevice.disconnect(targetDevice);
+//                Log.e("mainpain", "position: " + position);
+//                if (position > 0) {
+//                    targetDevice = pairedDevices.get(position - 1);
+//                } else {
+//                    hidDevice.disconnect(targetDevice);
+//                }
+//                if (targetDevice != null && hidDevice != null) {
+//                    connect();
+//                }
+//            }
+//
+//
+//            @Override
+//            public void onNothingSelected(AdapterView<?> parent) {
+//
+//            }
+//        });
+//
+//        availableDevicesSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+//            @Override
+//            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+//                if (position <= 0) {
+//                    return;
+//                }
+//                BluetoothDevice device = availableDevices.get(position - 1);
+//                Log.d("mainpain", "Pairing with " + device.getName());
+//                if (device.getBondState() == BluetoothDevice.BOND_NONE) {
+//                    boolean startedPairing = device.createBond();
+//                    if (startedPairing) {
+//                        toastMessage("Pairing with " + device.getName());
 
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {
-
-            }
-        });
-
-        availableDevicesSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                if (position <= 0) {
-                    return;
-                }
-                BluetoothDevice device = availableDevices.get(position - 1);
-                Log.d("mainpain", "Pairing with " + device.getName());
-                if (device.getBondState() == BluetoothDevice.BOND_NONE) {
-                    boolean startedPairing = device.createBond();
-                    if (startedPairing) {
-                        toastMessage("Pairing with " + device.getName());
-                        updateAvailableDevicesSpinnerModel(availableDevices);
-                        updatePairedDevicesSpinnerModel(pairedDevices);
-                    } else {
-                        toastMessage("Failed to start pairing with " + device.getName());
-                    }
-                }
-            }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {
-            }
-        });
-        availableDevicesSpinner.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                updatePairedDevicesSpinnerModel(pairedDevices);
-                return false;
-            }
-        });
-
-        inputsSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                if (position == 0 || isDialogShown) return;
-
-                if (editMode) {
-                    isDialogShown = true;
-                    showInputDialog(position);
-
-                } else {
-                    String selectedItem = parent.getItemAtPosition(position).toString();
-                    inputValue = selectedItem.substring(selectedItem.indexOf('.') + 1).trim();
-                    textInputEditText.setText(inputValue);
-                }
-
-                inputsSpinner.post(() -> {
-                    inputsSpinner.setSelection(0);
-                    isDialogShown = false;
-                });
-            }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {
-            }
-        });
-
-
-    }
-
-
+    /// /                        updateAvailableDevicesSpinnerModel(availableDevices);
+//                        updateAvailableDevicesModel();
+//                        refreshDeviceUI();
+//                    } else {
+//                        toastMessage("Failed to start pairing with " + device.getName());
+//                    }
+//                }
+//            }
+//
+//            @Override
+//            public void onNothingSelected(AdapterView<?> parent) {
+//            }
+//        });
+//        availableDevicesSpinner.setOnTouchListener(new View.OnTouchListener() {
+//            @Override
+//            public boolean onTouch(View v, MotionEvent event) {
+//                rebuildDeviceUI();
+//                return false;
+//            }
+//        });
+//
+//        inputsSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+//            @Override
+//            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+//                if (position == 0 || isDialogShown) return;
+//
+//                if (editMode) {
+//                    isDialogShown = true;
+//                    showInputDialog(position);
+//
+//                } else {
+//                    String selectedItem = parent.getItemAtPosition(position).toString();
+//                    inputValue = selectedItem.substring(selectedItem.indexOf('.') + 1).trim();
+//                    textInputEditText.setText(inputValue);
+//                }
+//
+//                inputsSpinner.post(() -> {
+//                    inputsSpinner.setSelection(0);
+//                    isDialogShown = false;
+//                });
+//            }
+//
+//            @Override
+//            public void onNothingSelected(AdapterView<?> parent) {
+//            }
+//        });
+//
+//
+//    }
     private void showInputDialog(int pos) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("Enter Data for Slot " + pos);
