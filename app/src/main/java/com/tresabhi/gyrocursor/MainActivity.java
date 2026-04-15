@@ -45,6 +45,8 @@ import java.util.concurrent.Executor;
 
 @SuppressLint("MissingPermission")
 public class MainActivity extends Activity implements UpdateView {
+    public static final String TAG = "GYRO_DEBUG";
+
     public static BluetoothHidDevice sharedHid;
     public static BluetoothDevice sharedTarget;
 
@@ -75,7 +77,7 @@ public class MainActivity extends Activity implements UpdateView {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        Log.d("BT_DEBUG", "onCreate ran");
+        Log.d(TAG, "onCreate ran");
         super.onCreate(savedInstanceState);
 
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
@@ -133,21 +135,21 @@ public class MainActivity extends Activity implements UpdateView {
 
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN)
                 != PackageManager.PERMISSION_GRANTED) {
-            Log.e("BT_DEBUG", "BLUETOOTH_SCAN not granted");
+            Log.e(TAG, "BLUETOOTH_SCAN not granted");
             return;
         }
 
         boolean started = btAdapter.startDiscovery();
-        Log.d("BT_DEBUG", "startDiscovery returned=" + started);
+        Log.d(TAG, "startDiscovery returned=" + started);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         getProxy();
-        Log.d("mainpain", "on Resume");
+        Log.d(TAG, "on Resume");
         if (targetDevice != null && hidDevice != null) {
-            Log.d("mainpain", "TD: " + targetDevice.getName() + "HID: " + hidDevice);
+            Log.d(TAG, "TD: " + targetDevice.getName() + "HID: " + hidDevice);
             connect();
         }
     }
@@ -191,7 +193,7 @@ public class MainActivity extends Activity implements UpdateView {
 
         updateInputsSpinner();
 
-        Log.d("mainpain", "Passwords and inputs loaded from SharedPreferences.");
+        Log.d(TAG, "Passwords and inputs loaded from SharedPreferences.");
     }
 
 
@@ -208,7 +210,7 @@ public class MainActivity extends Activity implements UpdateView {
 
                             runOnUiThread(() -> {
                                 if (state == BluetoothProfile.STATE_DISCONNECTED) {
-                                    logMessage("mainpain", "Disconnected: " + device.getName());
+                                    logMessage(TAG, "Disconnected: " + device.getName());
 
                                 } else if (state == BluetoothProfile.STATE_CONNECTING) {
                                     toastMessage("Connecting...");
@@ -221,7 +223,7 @@ public class MainActivity extends Activity implements UpdateView {
                                     startActivity(intent);
 
                                 } else if (state == BluetoothProfile.STATE_DISCONNECTING) {
-                                    logMessage("mainpain", "Disconnecting: " + device.getName());
+                                    logMessage(TAG, "Disconnecting: " + device.getName());
                                 }
                             });
                         }
@@ -229,7 +231,7 @@ public class MainActivity extends Activity implements UpdateView {
                         @Override
                         public void onAppStatusChanged(BluetoothDevice pluggedDevice, boolean registered) {
                             super.onAppStatusChanged(pluggedDevice, registered);
-                            logMessage("mainpain", registered ? "HID Device registered successfully" : "HID Device registration failed");
+                            logMessage(TAG, registered ? "HID Device registered successfully" : "HID Device registration failed");
                             if (registered) {
                                 regState = 1;
                             } else {
@@ -239,13 +241,13 @@ public class MainActivity extends Activity implements UpdateView {
 
                         @Override
                         public void onGetReport(BluetoothDevice device, byte type, byte id, int bufferSize) {
-                            logMessage("mainpain", "onGetReport: device=" + device + " type=" + type
+                            logMessage(TAG, "onGetReport: device=" + device + " type=" + type
                                     + " id=" + id + " bufferSize=" + bufferSize);
                         }
 
                         @Override
                         public void onSetReport(BluetoothDevice device, byte type, byte id, byte[] report) {
-                            logMessage("mainpain", "onSetReport: device=" + device + " type=" + type
+                            logMessage(TAG, "onSetReport: device=" + device + " type=" + type
                                     + " id=" + id + " report length=" + (report != null ? report.length : "null"));
                         }
                     };
@@ -361,7 +363,7 @@ public class MainActivity extends Activity implements UpdateView {
         receiver = new BroadcastReceiver() {
             @SuppressLint("MissingPermission")
             public void onReceive(Context context, Intent intent) {
-                Log.d("BT_DEBUG", "ACTION_RECEIVED: " + intent.getAction());
+                Log.d(TAG, "ACTION_RECEIVED: " + intent.getAction());
 
                 if (!BluetoothDevice.ACTION_FOUND.equals(intent.getAction())) return;
 
@@ -378,18 +380,18 @@ public class MainActivity extends Activity implements UpdateView {
 
                     runOnUiThread(() -> rebuildDeviceUI());
 
-                    Log.d("BT_DEBUG", "RAW DEVICE: name=" + device.getName() + " addr=" + device.getAddress());
+                    Log.d(TAG, "RAW DEVICE: name=" + device.getName() + " addr=" + device.getAddress());
                 }
 
-                Log.d("BT_DEBUG", "DEVICE_EVENT: " + device);
+                Log.d(TAG, "DEVICE_EVENT: " + device);
             }
         };
 
         IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
-        Log.d("BT_DEBUG", "IntentFilter set for ACTION_FOUND");
+        Log.d(TAG, "IntentFilter set for ACTION_FOUND");
 
         registerReceiver(receiver, filter);
-        Log.d("BT_DEBUG", "Receiver registered");
+        Log.d(TAG, "Receiver registered");
 
 
         if (btAdapter.isDiscovering()) {
@@ -425,10 +427,10 @@ public class MainActivity extends Activity implements UpdateView {
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
                 }
-                Log.d("mainpain", "Input value sent: " + inputValue);
+                Log.d(TAG, "Input value sent: " + inputValue);
             } else if (inputsSpinner.getSelectedItemPosition() > 0) {
                 inputValue = inputsSpinner.getSelectedItem().toString();
-                Log.d("mainpain", "Sending input spinner value: " + inputValue);
+                Log.d(TAG, "Sending input spinner value: " + inputValue);
             } else {
                 toastMessage("Please select an input or password slot.");
             }
@@ -453,7 +455,7 @@ public class MainActivity extends Activity implements UpdateView {
         Switch editSwitch = findViewById(R.id.edit);
         editSwitch.setOnClickListener(v -> {
             editMode = editSwitch.isChecked();
-            logMessage("mainpain", "editMode: " + editMode);
+            logMessage(TAG, "editMode: " + editMode);
         });
     }
 
@@ -477,7 +479,7 @@ public class MainActivity extends Activity implements UpdateView {
 //            @Override
 //            public void onItemSelected(AdapterView<?> parent, android.view.View view, int position, long id) {
 //                hidDevice.disconnect(targetDevice);
-//                Log.e("mainpain", "position: " + position);
+//                Log.e(TAG, "position: " + position);
 //                if (position > 0) {
 //                    targetDevice = pairedDevices.get(position - 1);
 //                } else {
@@ -502,7 +504,7 @@ public class MainActivity extends Activity implements UpdateView {
 //                    return;
 //                }
 //                BluetoothDevice device = availableDevices.get(position - 1);
-//                Log.d("mainpain", "Pairing with " + device.getName());
+//                Log.d(TAG, "Pairing with " + device.getName());
 //                if (device.getBondState() == BluetoothDevice.BOND_NONE) {
 //                    boolean startedPairing = device.createBond();
 //                    if (startedPairing) {
@@ -570,7 +572,7 @@ public class MainActivity extends Activity implements UpdateView {
 
             setInput(key, newInputValue);
 
-            Log.d("InputDialog", "User entered: " + newInputValue);
+            Log.d(TAG, "User entered: " + newInputValue);
         });
 
         builder.setNegativeButton("Cancel", (dialog, which) -> dialog.cancel());
@@ -581,7 +583,7 @@ public class MainActivity extends Activity implements UpdateView {
     private void setInput(String key, String value) {
         if (value.isEmpty()) {
             inputsMap.remove(key);
-            Log.d("InputsSpinner", "Slot " + key + " removed because it is empty.");
+            Log.d(TAG, "Slot " + key + " removed because it is empty.");
         } else {
             inputsMap.put(key, value);
         }
@@ -596,7 +598,7 @@ public class MainActivity extends Activity implements UpdateView {
             inputsAdapter.addAll(formattedList);
             inputsAdapter.notifyDataSetChanged();
         } else {
-            Log.e("InputsSpinner", "Adapter is not initialized.");
+            Log.e(TAG, "Adapter is not initialized.");
         }
     }
 
@@ -653,17 +655,17 @@ public class MainActivity extends Activity implements UpdateView {
                         reportSave.clear();
                     }, report.size() * 40L);
                 } else {
-                    Log.d("Bluetooth", "Device is not in a connected state.");
+                    Log.d(TAG, "Device is not in a connected state.");
                 }
             } catch (Exception e) {
-                Log.e("Bluetooth", "Error: " + e.getMessage());
+                Log.e(TAG, "Error: " + e.getMessage());
             }
         });
     }
 
 
     private void toastMessage(String message) {
-        Log.d("mainpain", message);
+        Log.d(TAG, message);
         ((Activity) this).runOnUiThread(() -> {
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
         });

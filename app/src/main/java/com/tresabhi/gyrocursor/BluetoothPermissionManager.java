@@ -61,10 +61,10 @@ public class BluetoothPermissionManager {
         if (requestCode == REQUEST_LOCATION_PERMISSION || requestCode == REQUEST_BLUETOOTH_SCAN
                 || requestCode == REQUEST_BLUETOOTH_CONNECT || requestCode == REQUEST_BLUETOOTH_ADVERTISE) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                Log.d("BluetoothPermissionManager", "Permission granted");
+                Log.d(MainActivity.TAG, "Permission granted");
                 // Handle permission granted scenario
             } else {
-                Log.e("BluetoothPermissionManager", "Permission denied");
+                Log.e(MainActivity.TAG, "Permission denied");
                 // Handle permission denied scenario
             }
         }
