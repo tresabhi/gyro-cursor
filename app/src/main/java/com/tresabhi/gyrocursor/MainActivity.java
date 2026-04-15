@@ -5,7 +5,6 @@ import static android.bluetooth.BluetoothHidDevice.SUBCLASS1_KEYBOARD;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothHidDevice;
@@ -15,19 +14,13 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.Handler;
-import android.os.Looper;
 import android.util.Log;
 import android.view.View;
-import android.widget.ArrayAdapter;
-import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.Spinner;
-import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -35,16 +28,13 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
-import com.google.android.material.textfield.TextInputEditText;
-
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Objects;
 import java.util.concurrent.Executor;
 
 
 @SuppressLint("MissingPermission")
-public class MainActivity extends Activity implements UpdateView {
+public class MainActivity extends Activity {
     public static final String TAG = "GYRO_DEBUG";
 
     public static BluetoothHidDevice sharedHid;
@@ -54,25 +44,12 @@ public class MainActivity extends Activity implements UpdateView {
     private final ArrayList<BluetoothDevice> pairedDevices = new ArrayList<>();
     private final ArrayList<BluetoothDevice> discoveredDevices = new ArrayList<>();
     private final HashMap<String, BluetoothDevice> discoveredMap = new HashMap<>();
-    public Spinner pairedDevicesSpinner;
-    public Spinner availableDevicesSpinner;
     private BluetoothDevice targetDevice;
     private BluetoothHidDevice hidDevice;
     private BroadcastReceiver receiver;
-    private Spinner inputsSpinner;
-    private TextInputEditText textInputEditText;
     private LinearLayout pairedContainer;
-    private ArrayAdapter<String> inputsAdapter;
 
-    private String inputValue;
-    private String lastInput = "";
-    private boolean isRepeatActive = false;
-    private boolean editMode = false;
     private int regState;
-    private boolean isDialogShown = false;
-
-    private ArrayList<byte[]> reportSave;
-    private HashMap<String, String> inputsMap;
 
 
     @Override
@@ -106,28 +83,11 @@ public class MainActivity extends Activity implements UpdateView {
             iconView.setImageResource(index++ % 2 == 0 ? R.drawable.mixed_icon : R.drawable.computer_icon);
         }
 
-//        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
-//            Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-//            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
-//            return insets;
-//        });
-//
-        BluetoothPermissionManager bluetoothPermissionManager = new BluetoothPermissionManager(this, this);
+        BluetoothPermissionManager bluetoothPermissionManager = new BluetoothPermissionManager(this);
         bluetoothPermissionManager.checkAndRequestPermissions();
-//
-//        SharedPreferences prefs = getSharedPreferences("com.tresabhi.gyrocursor.preferences", MODE_PRIVATE);
-//        inputValue = prefs.getString("input_value", "");
-//        textInputEditText = findViewById(R.id.TextInputEditLayout);
-//        textInputEditText.setText(inputValue);
-//
         getProxy();
         rebuildDeviceUI();
-//        updateAvailableDevicesSpinnerModel(availableDevices);
-//        initializeInputsSpinner();
         findAvailableDevices();
-//        spinnerListener();
-//        buttonListener();
-//        loadValues();
 
         if (btAdapter.isDiscovering()) {
             btAdapter.cancelDiscovery();
@@ -157,7 +117,6 @@ public class MainActivity extends Activity implements UpdateView {
     @Override
     protected void onPause() {
         super.onPause();
-        saveValues();
     }
 
     protected void onDestroy() {
@@ -166,36 +125,6 @@ public class MainActivity extends Activity implements UpdateView {
             hidDevice.disconnect(targetDevice);
         }
     }
-
-    private void saveValues() {
-//        inputValue = Objects.requireNonNull(textInputEditText.getText()).toString();
-//        SharedPreferences prefs = getSharedPreferences("com.tresabhi.gyrocursor.preferences", MODE_PRIVATE);
-//        SharedPreferences.Editor editor = prefs.edit();
-//
-//        editor.putString("input_value", inputValue);
-//
-//        for (String key : inputsMap.keySet()) {
-//            editor.putString("input_" + key, inputsMap.get(key));
-//        }
-//
-//        editor.apply();
-    }
-
-    private void loadValues() {
-        SharedPreferences prefs = getSharedPreferences("com.tresabhi.gyrocursor.preferences", MODE_PRIVATE);
-
-        inputsMap = new HashMap<>();
-        for (int i = 1; i <= 5; i++) {
-            String key = i + ".";
-            String savedInput = prefs.getString("input_" + key, "");
-            inputsMap.put(key, savedInput);
-        }
-
-        updateInputsSpinner();
-
-        Log.d(TAG, "Passwords and inputs loaded from SharedPreferences.");
-    }
-
 
     private void getProxy() {
         btAdapter.getProfileProxy(this, new BluetoothProfile.ServiceListener() {
@@ -210,7 +139,7 @@ public class MainActivity extends Activity implements UpdateView {
 
                             runOnUiThread(() -> {
                                 if (state == BluetoothProfile.STATE_DISCONNECTED) {
-                                    logMessage(TAG, "Disconnected: " + device.getName());
+                                    Log.d(TAG, "Disconnected: " + device.getName());
 
                                 } else if (state == BluetoothProfile.STATE_CONNECTING) {
                                     toastMessage("Connecting...");
@@ -223,7 +152,7 @@ public class MainActivity extends Activity implements UpdateView {
                                     startActivity(intent);
 
                                 } else if (state == BluetoothProfile.STATE_DISCONNECTING) {
-                                    logMessage(TAG, "Disconnecting: " + device.getName());
+                                    Log.d(TAG, "Disconnecting: " + device.getName());
                                 }
                             });
                         }
@@ -231,7 +160,7 @@ public class MainActivity extends Activity implements UpdateView {
                         @Override
                         public void onAppStatusChanged(BluetoothDevice pluggedDevice, boolean registered) {
                             super.onAppStatusChanged(pluggedDevice, registered);
-                            logMessage(TAG, registered ? "HID Device registered successfully" : "HID Device registration failed");
+                            Log.d(TAG, registered ? "HID Device registered successfully" : "HID Device registration failed");
                             if (registered) {
                                 regState = 1;
                             } else {
@@ -241,13 +170,13 @@ public class MainActivity extends Activity implements UpdateView {
 
                         @Override
                         public void onGetReport(BluetoothDevice device, byte type, byte id, int bufferSize) {
-                            logMessage(TAG, "onGetReport: device=" + device + " type=" + type
+                            Log.d(TAG, "onGetReport: device=" + device + " type=" + type
                                     + " id=" + id + " bufferSize=" + bufferSize);
                         }
 
                         @Override
                         public void onSetReport(BluetoothDevice device, byte type, byte id, byte[] report) {
-                            logMessage(TAG, "onSetReport: device=" + device + " type=" + type
+                            Log.d(TAG, "onSetReport: device=" + device + " type=" + type
                                     + " id=" + id + " report length=" + (report != null ? report.length : "null"));
                         }
                     };
@@ -417,467 +346,11 @@ public class MainActivity extends Activity implements UpdateView {
         handler.post(checkCondition);
     }
 
-
-    private void buttonListener() {
-        findViewById(R.id.inputbutton).setOnClickListener(v -> {
-            inputValue = Objects.requireNonNull(textInputEditText.getText()).toString();
-            if (!inputValue.isEmpty() && targetDevice != null && hidDevice.getConnectionState(targetDevice) == BluetoothProfile.STATE_CONNECTED) {
-                try {
-                    convertTextToHidReport(inputValue);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-                Log.d(TAG, "Input value sent: " + inputValue);
-            } else if (inputsSpinner.getSelectedItemPosition() > 0) {
-                inputValue = inputsSpinner.getSelectedItem().toString();
-                Log.d(TAG, "Sending input spinner value: " + inputValue);
-            } else {
-                toastMessage("Please select an input or password slot.");
-            }
-
-            inputsSpinner.setSelection(0);
-            textInputEditText.setText("");
-        });
-
-
-        findViewById(R.id.repeat_input).setOnClickListener(v -> {
-            if (!isRepeatActive) {
-                lastInput = Objects.requireNonNull(textInputEditText.getText()).toString();
-                textInputEditText.setText(inputValue);
-                isRepeatActive = true;
-            } else {
-                textInputEditText.setText(lastInput);
-                isRepeatActive = false;
-            }
-        });
-
-
-        Switch editSwitch = findViewById(R.id.edit);
-        editSwitch.setOnClickListener(v -> {
-            editMode = editSwitch.isChecked();
-            logMessage(TAG, "editMode: " + editMode);
-        });
-    }
-
-    private void initializeInputsSpinner() {
-        inputsSpinner = findViewById(R.id.inputs);
-
-        inputsMap = new HashMap<>();
-
-        for (int i = 1; i <= 5; i++) {
-            String key = i + ".";
-            inputsMap.put(key, "");
-        }
-
-        inputsAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, getFormattedInputList());
-        inputsAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        inputsSpinner.setAdapter(inputsAdapter);
-    }
-
-//    private void spinnerListener() {
-//        pairedDevicesSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-//            @Override
-//            public void onItemSelected(AdapterView<?> parent, android.view.View view, int position, long id) {
-//                hidDevice.disconnect(targetDevice);
-//                Log.e(TAG, "position: " + position);
-//                if (position > 0) {
-//                    targetDevice = pairedDevices.get(position - 1);
-//                } else {
-//                    hidDevice.disconnect(targetDevice);
-//                }
-//                if (targetDevice != null && hidDevice != null) {
-//                    connect();
-//                }
-//            }
-//
-//
-//            @Override
-//            public void onNothingSelected(AdapterView<?> parent) {
-//
-//            }
-//        });
-//
-//        availableDevicesSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-//            @Override
-//            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-//                if (position <= 0) {
-//                    return;
-//                }
-//                BluetoothDevice device = availableDevices.get(position - 1);
-//                Log.d(TAG, "Pairing with " + device.getName());
-//                if (device.getBondState() == BluetoothDevice.BOND_NONE) {
-//                    boolean startedPairing = device.createBond();
-//                    if (startedPairing) {
-//                        toastMessage("Pairing with " + device.getName());
-
-    /// /                        updateAvailableDevicesSpinnerModel(availableDevices);
-//                        updateAvailableDevicesModel();
-//                        refreshDeviceUI();
-//                    } else {
-//                        toastMessage("Failed to start pairing with " + device.getName());
-//                    }
-//                }
-//            }
-//
-//            @Override
-//            public void onNothingSelected(AdapterView<?> parent) {
-//            }
-//        });
-//        availableDevicesSpinner.setOnTouchListener(new View.OnTouchListener() {
-//            @Override
-//            public boolean onTouch(View v, MotionEvent event) {
-//                rebuildDeviceUI();
-//                return false;
-//            }
-//        });
-//
-//        inputsSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-//            @Override
-//            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-//                if (position == 0 || isDialogShown) return;
-//
-//                if (editMode) {
-//                    isDialogShown = true;
-//                    showInputDialog(position);
-//
-//                } else {
-//                    String selectedItem = parent.getItemAtPosition(position).toString();
-//                    inputValue = selectedItem.substring(selectedItem.indexOf('.') + 1).trim();
-//                    textInputEditText.setText(inputValue);
-//                }
-//
-//                inputsSpinner.post(() -> {
-//                    inputsSpinner.setSelection(0);
-//                    isDialogShown = false;
-//                });
-//            }
-//
-//            @Override
-//            public void onNothingSelected(AdapterView<?> parent) {
-//            }
-//        });
-//
-//
-//    }
-    private void showInputDialog(int pos) {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Enter Data for Slot " + pos);
-
-        final EditText input = new EditText(this);
-        builder.setView(input);
-
-        builder.setPositiveButton("OK", (dialog, which) -> {
-            String newInputValue = input.getText().toString().trim();
-            String key = pos + ".";
-
-            setInput(key, newInputValue);
-
-            Log.d(TAG, "User entered: " + newInputValue);
-        });
-
-        builder.setNegativeButton("Cancel", (dialog, which) -> dialog.cancel());
-
-        builder.show();
-    }
-
-    private void setInput(String key, String value) {
-        if (value.isEmpty()) {
-            inputsMap.remove(key);
-            Log.d(TAG, "Slot " + key + " removed because it is empty.");
-        } else {
-            inputsMap.put(key, value);
-        }
-
-        updateInputsSpinner();
-    }
-
-    private void updateInputsSpinner() {
-        if (inputsAdapter != null) {
-            ArrayList<String> formattedList = getFormattedInputList();
-            inputsAdapter.clear();
-            inputsAdapter.addAll(formattedList);
-            inputsAdapter.notifyDataSetChanged();
-        } else {
-            Log.e(TAG, "Adapter is not initialized.");
-        }
-    }
-
-
-    private void convertTextToHidReport(String text) throws InterruptedException {
-        ArrayList<byte[]> reportMessage = new ArrayList<>();
-        byte[] report = new byte[8];
-
-        // HID report size for a keyboard is usually 8 bytes
-        for (int i = 0; i < text.length(); i++) {
-            report = new byte[8];
-            char character = text.charAt(i);
-            byte keyCode = getKeyCode(character);
-
-
-            if (Character.isUpperCase(character) || "~!@#$%^&*()_+{}|:\"<>?".indexOf(character) >= 0) {
-                // Set the left Shift modifier key (bit 1 in the first byte of the report)
-                report[0] = 0x02;  // 0x02 represents the left Shift key
-                // Convert the character to lowercase if it was an uppercase letter
-                if (Character.isUpperCase(character)) {
-                    character = Character.toLowerCase(character);
-                    keyCode = getKeyCode(character);
-                }
-            }
-
-            report[2] = keyCode;
-            reportMessage.add(report);
-        }
-
-        sendReport(reportMessage);
-    }
-
-    private void sendReport(ArrayList<byte[]> report) {
-        Handler handler = new Handler(Looper.getMainLooper());
-        handler.post(() -> {
-            try {
-                reportSave = report;
-                int state = hidDevice.getConnectionState(targetDevice);
-                if (state == BluetoothProfile.STATE_CONNECTED) {
-                    byte[] report2 = new byte[8];
-                    report2[2] = 0x00;
-
-                    for (int i = 0; i < report.size(); i++) {
-                        int finalI = i;
-                        handler.postDelayed(() -> {
-                            hidDevice.sendReport(targetDevice, SUBCLASS1_KEYBOARD, report.get(finalI));
-                            hidDevice.sendReport(targetDevice, SUBCLASS1_KEYBOARD, report2);
-                        }, i * 40L); // 40ms delay between keystrokes
-                    }
-
-                    // Final cleanup after all keystrokes
-                    handler.postDelayed(() -> {
-                        hidDevice.sendReport(targetDevice, SUBCLASS1_KEYBOARD, report2);
-                        reportSave.clear();
-                    }, report.size() * 40L);
-                } else {
-                    Log.d(TAG, "Device is not in a connected state.");
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error: " + e.getMessage());
-            }
-        });
-    }
-
-
     private void toastMessage(String message) {
         Log.d(TAG, message);
         ((Activity) this).runOnUiThread(() -> {
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
         });
-    }
-
-    private byte getKeyCode(char character) {
-        switch (character) {
-            // Lowercase letters
-            case 'a':
-                return 0x04;
-            case 'b':
-                return 0x05;
-            case 'c':
-                return 0x06;
-            case 'd':
-                return 0x07;
-            case 'e':
-                return 0x08;
-            case 'f':
-                return 0x09;
-            case 'g':
-                return 0x0A;
-            case 'h':
-                return 0x0B;
-            case 'i':
-                return 0x0C;
-            case 'j':
-                return 0x0D;
-            case 'k':
-                return 0x0E;
-            case 'l':
-                return 0x0F;
-            case 'm':
-                return 0x10;
-            case 'n':
-                return 0x11;
-            case 'o':
-                return 0x12;
-            case 'p':
-                return 0x13;
-            case 'q':
-                return 0x14;
-            case 'r':
-                return 0x15;
-            case 's':
-                return 0x16;
-            case 't':
-                return 0x17;
-            case 'u':
-                return 0x18;
-            case 'v':
-                return 0x19;
-            case 'w':
-                return 0x1A;
-            case 'x':
-                return 0x1B;
-            case 'y':
-                return 0x1C;
-            case 'z':
-                return 0x1D;
-
-            // Uppercase letters (Shift modifier required)
-            case 'A':
-                return 0x04;
-            case 'B':
-                return 0x05;
-            case 'C':
-                return 0x06;
-            case 'D':
-                return 0x07;
-            case 'E':
-                return 0x08;
-            case 'F':
-                return 0x09;
-            case 'G':
-                return 0x0A;
-            case 'H':
-                return 0x0B;
-            case 'I':
-                return 0x0C;
-            case 'J':
-                return 0x0D;
-            case 'K':
-                return 0x0E;
-            case 'L':
-                return 0x0F;
-            case 'M':
-                return 0x10;
-            case 'N':
-                return 0x11;
-            case 'O':
-                return 0x12;
-            case 'P':
-                return 0x13;
-            case 'Q':
-                return 0x14;
-            case 'R':
-                return 0x15;
-            case 'S':
-                return 0x16;
-            case 'T':
-                return 0x17;
-            case 'U':
-                return 0x18;
-            case 'V':
-                return 0x19;
-            case 'W':
-                return 0x1A;
-            case 'X':
-                return 0x1B;
-            case 'Y':
-                return 0x1C;
-            case 'Z':
-                return 0x1D;
-
-            // Numbers
-            case '1':
-                return 0x1E;
-            case '2':
-                return 0x1F;
-            case '3':
-                return 0x20;
-            case '4':
-                return 0x21;
-            case '5':
-                return 0x22;
-            case '6':
-                return 0x23;
-            case '7':
-                return 0x24;
-            case '8':
-                return 0x25;
-            case '9':
-                return 0x26;
-            case '0':
-                return 0x27;
-
-            // Special characters
-            case '\n':
-                return 0x28; // Enter
-            case ' ':
-                return 0x2C;  // Spacebar
-            case '-':
-                return 0x2D;  // Hyphen
-            case '=':
-                return 0x2E;  // Equal sign
-            case '[':
-                return 0x2F;  // Open square bracket
-            case ']':
-                return 0x30;  // Close square bracket
-            case '\\':
-                return 0x31; // Backslash
-            case ';':
-                return 0x33;  // Semicolon
-            case '\'':
-                return 0x34; // Apostrophe
-            case '`':
-                return 0x35;  // Grave accent
-            case ',':
-                return 0x36;  // Comma
-            case '.':
-                return 0x37;  // Period
-            case '/':
-                return 0x38;  // Slash
-
-            // Shift-modified symbols
-            case '!':
-                return 0x1E; // Shift + 1
-            case '@':
-                return 0x1F; // Shift + 2
-            case '#':
-                return 0x20; // Shift + 3
-            case '$':
-                return 0x21; // Shift + 4
-            case '%':
-                return 0x22; // Shift + 5
-            case '^':
-                return 0x23; // Shift + 6
-            case '&':
-                return 0x24; // Shift + 7
-            case '*':
-                return 0x25; // Shift + 8
-            case '(':
-                return 0x26; // Shift + 9
-            case ')':
-                return 0x27; // Shift + 0
-            case '_':
-                return 0x2D; // Shift + Hyphen
-            case '+':
-                return 0x2E; // Shift + Equal sign
-            case '{':
-                return 0x2F; // Shift + Open square bracket
-            case '}':
-                return 0x30; // Shift + Close square bracket
-            case '|':
-                return 0x31; // Shift + Backslash
-            case ':':
-                return 0x33; // Shift + Semicolon
-            case '"':
-                return 0x34; // Shift + Apostrophe
-            case '~':
-                return 0x35; // Shift + Grave accent
-            case '<':
-                return 0x36; // Shift + Comma
-            case '>':
-                return 0x37; // Shift + Period
-            case '?':
-                return 0x38; // Shift + Slash
-
-            default:
-                return 0; // Return 0 for unhandled characters
-        }
     }
 
     private byte[] getDescriptor() {
@@ -911,22 +384,4 @@ public class MainActivity extends Activity implements UpdateView {
                 (byte) 0xC0
         };
     }
-
-    private ArrayList<String> getFormattedInputList() {
-        ArrayList<String> items = new ArrayList<>();
-        items.add("Inputs");
-
-        for (int i = 1; i <= 5; i++) {
-            String key = i + ".";
-            String value = inputsMap.get(key);
-            if (value != null && !value.isEmpty()) {
-                items.add(i + ". " + value);
-            } else {
-                items.add(i + ". [Empty slot]");
-            }
-        }
-
-        return items;
-    }
-
 }

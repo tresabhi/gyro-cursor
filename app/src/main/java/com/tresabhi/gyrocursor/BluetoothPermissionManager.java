@@ -3,14 +3,11 @@ package com.tresabhi.gyrocursor;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
-import android.util.Log;
 
-import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 public class BluetoothPermissionManager {
-
     private static final int REQUEST_LOCATION_PERMISSION = 1;
     private static final int REQUEST_BLUETOOTH_SCAN = 2;
     private static final int REQUEST_BLUETOOTH_CONNECT = 3;
@@ -19,7 +16,7 @@ public class BluetoothPermissionManager {
 
     private final Context context;
 
-    public BluetoothPermissionManager(Context context, MainActivity controller) {
+    public BluetoothPermissionManager(Context context) {
         this.context = context;
     }
 
@@ -54,19 +51,6 @@ public class BluetoothPermissionManager {
             ActivityCompat.requestPermissions((MainActivity) context,
                     new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
                     REQUEST_LOCATION_PERMISSION);
-        }
-    }
-
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        if (requestCode == REQUEST_LOCATION_PERMISSION || requestCode == REQUEST_BLUETOOTH_SCAN
-                || requestCode == REQUEST_BLUETOOTH_CONNECT || requestCode == REQUEST_BLUETOOTH_ADVERTISE) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                Log.d(MainActivity.TAG, "Permission granted");
-                // Handle permission granted scenario
-            } else {
-                Log.e(MainActivity.TAG, "Permission denied");
-                // Handle permission denied scenario
-            }
         }
     }
 }
