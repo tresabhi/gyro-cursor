@@ -217,6 +217,10 @@ public class MainActivity extends Activity implements UpdateView {
                                         toastMessage("Connecting...");
                                     } else if (state == BluetoothProfile.STATE_CONNECTED) {
                                         toastMessage("Connected");
+
+                                        Intent intent = new Intent(MainActivity.this, ForwardChooserActivity.class);
+                                        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                                        startActivity(intent);
                                     } else if (state == BluetoothProfile.STATE_DISCONNECTING) {
                                         logMessage("mainpain", "HID Device currently disconnecting from: " + device.getName());
                                     }
