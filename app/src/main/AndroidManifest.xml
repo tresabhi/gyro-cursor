@@ -30,5 +30,6 @@
         </activity>
         <activity android:name=".ConnectingActivity" />
         <activity android:name=".ForwardChooserActivity" />
+        <activity android:name=".EyeCandyActivity" />
     </application>
 </manifest>
