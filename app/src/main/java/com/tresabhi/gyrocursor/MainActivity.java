@@ -45,6 +45,8 @@ import java.util.concurrent.Executor;
 
 @SuppressLint("MissingPermission")
 public class MainActivity extends Activity implements UpdateView {
+    public static BluetoothHidDevice sharedHid;
+    public static BluetoothDevice sharedTarget;
 
     private final BluetoothAdapter btAdapter = BluetoothAdapter.getDefaultAdapter();
     private final ArrayList<BluetoothDevice> pairedDevices = new ArrayList<>();
@@ -271,6 +273,10 @@ public class MainActivity extends Activity implements UpdateView {
         Executor executor = runnable -> new Thread(runnable).start();
 
         hidDevice.registerApp(sdp, null, null, executor, callback);
+
+        hidDevice = (BluetoothHidDevice) proxy;
+        sharedHid = hidDevice;
+        sharedTarget = targetDevice;
     }
 
     private void addSectionTitle(String title) {
