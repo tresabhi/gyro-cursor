@@ -311,6 +311,12 @@ public class MainActivity extends Activity implements UpdateView {
 
         entry.setOnClickListener(v -> {
             targetDevice = device;
+
+            Intent intent = new Intent(MainActivity.this, ConnectingActivity.class);
+            intent.putExtra("device_name", device.getName());
+            intent.putExtra("device_address", device.getAddress());
+            startActivity(intent);
+
             connect();
         });
 
