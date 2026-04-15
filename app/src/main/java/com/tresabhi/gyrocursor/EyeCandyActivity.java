@@ -12,6 +12,7 @@ import android.widget.TextView;
 import androidx.core.app.ActivityCompat;
 
 public class EyeCandyActivity extends Activity {
+    private static final String TAG = "GYRO_DEBUG_EYE";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -32,16 +33,16 @@ public class EyeCandyActivity extends Activity {
 
         Button debug = findViewById(R.id.debugButton);
         debug.setOnClickListener(v -> {
-            Log.d(MainActivity.TAG, "DEBUG BUTTON CLICKED");
+            Log.d(TAG, "DEBUG BUTTON CLICKED");
             moveMouseSquare();
         });
     }
 
     private void moveMouseSquare() {
-        Log.d(MainActivity.TAG, "moveMouseSquare entered");
+        Log.d(TAG, "moveMouseSquare entered");
 
         if (MainActivity.sharedHid == null || MainActivity.sharedTarget == null) {
-            Log.e(MainActivity.TAG, "HID not ready: sharedHid=" + MainActivity.sharedHid
+            Log.e(TAG, "HID not ready: sharedHid=" + MainActivity.sharedHid
                     + " sharedTarget=" + MainActivity.sharedTarget);
             return;
         }
@@ -70,9 +71,9 @@ public class EyeCandyActivity extends Activity {
                 }
 
                 int state = MainActivity.sharedHid.getConnectionState(MainActivity.sharedTarget);
-                Log.d(MainActivity.TAG, "Connection state = " + state);
+                Log.d(TAG, "Connection state = " + state);
 
-                Log.d(MainActivity.TAG, "Sending HID move index=" + index);
+                Log.d(TAG, "Sending HID move index=" + index);
 
                 MainActivity.sharedHid.sendReport(
                         MainActivity.sharedTarget,

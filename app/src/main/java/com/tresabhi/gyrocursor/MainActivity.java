@@ -35,7 +35,7 @@ import java.util.concurrent.Executor;
 
 @SuppressLint("MissingPermission")
 public class MainActivity extends Activity {
-    public static final String TAG = "GYRO_DEBUG";
+    private static final String TAG = "GYRO_DEBUG_MAIN";
 
     public static BluetoothHidDevice sharedHid;
     public static BluetoothDevice sharedTarget;
