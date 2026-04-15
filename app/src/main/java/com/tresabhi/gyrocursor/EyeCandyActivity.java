@@ -41,9 +41,9 @@ public class EyeCandyActivity extends Activity {
     private void moveMouseSquare() {
         Log.d(TAG, "moveMouseSquare entered");
 
-        if (MainActivity.sharedHid == null || MainActivity.sharedTarget == null) {
-            Log.e(TAG, "HID not ready: sharedHid=" + MainActivity.sharedHid
-                    + " sharedTarget=" + MainActivity.sharedTarget);
+        if (MainActivity.hid == null || MainActivity.target == null) {
+            Log.e(TAG, "HID not ready: sharedHid=" + MainActivity.hid
+                    + " sharedTarget=" + MainActivity.target);
             return;
         }
 
@@ -51,9 +51,9 @@ public class EyeCandyActivity extends Activity {
 
         byte[][] moves = new byte[][]{
                 new byte[]{0x00, 20, 0},
-                new byte[]{0x00, 0, 20},
-                new byte[]{0x00, -20, 0},
-                new byte[]{0x00, 0, -20}
+//                new byte[]{0x00, 0, 20},
+//                new byte[]{0x00, -20, 0},
+//                new byte[]{0x00, 0, -20}
         };
 
         for (int i = 0; i < moves.length; i++) {
@@ -70,13 +70,13 @@ public class EyeCandyActivity extends Activity {
                     return;
                 }
 
-                int state = MainActivity.sharedHid.getConnectionState(MainActivity.sharedTarget);
+                int state = MainActivity.hid.getConnectionState(MainActivity.target);
                 Log.d(TAG, "Connection state = " + state);
 
                 Log.d(TAG, "Sending HID move index=" + index);
 
-                MainActivity.sharedHid.sendReport(
-                        MainActivity.sharedTarget,
+                MainActivity.hid.sendReport(
+                        MainActivity.target,
                         (byte) 0x00,
                         moves[index]
                 );

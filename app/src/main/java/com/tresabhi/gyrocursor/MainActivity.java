@@ -37,16 +37,14 @@ import java.util.concurrent.Executor;
 public class MainActivity extends Activity {
     private static final String TAG = "GYRO_DEBUG_MAIN";
 
-    public static BluetoothHidDevice sharedHid;
-    public static BluetoothDevice sharedTarget;
-
-    private final BluetoothAdapter btAdapter = BluetoothAdapter.getDefaultAdapter();
-    private final ArrayList<BluetoothDevice> pairedDevices = new ArrayList<>();
-    private final ArrayList<BluetoothDevice> discoveredDevices = new ArrayList<>();
+    public static BluetoothHidDevice hid;
+    public static BluetoothDevice target;
+    private final BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+    private final ArrayList<BluetoothDevice> paired = new ArrayList<>();
+    private final ArrayList<BluetoothDevice> discovered = new ArrayList<>();
     private final HashMap<String, BluetoothDevice> discoveredMap = new HashMap<>();
-    private BluetoothDevice targetDevice;
-    private BluetoothHidDevice hidDevice;
     private BroadcastReceiver receiver;
+
     private LinearLayout pairedContainer;
 
     private int regState;
@@ -89,8 +87,8 @@ public class MainActivity extends Activity {
         rebuildDeviceUI();
         findAvailableDevices();
 
-        if (btAdapter.isDiscovering()) {
-            btAdapter.cancelDiscovery();
+        if (adapter.isDiscovering()) {
+            adapter.cancelDiscovery();
         }
 
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN)
@@ -99,7 +97,7 @@ public class MainActivity extends Activity {
             return;
         }
 
-        boolean started = btAdapter.startDiscovery();
+        boolean started = adapter.startDiscovery();
         Log.d(TAG, "startDiscovery returned=" + started);
     }
 
@@ -108,8 +106,8 @@ public class MainActivity extends Activity {
         super.onResume();
         getProxy();
         Log.d(TAG, "on Resume");
-        if (targetDevice != null && hidDevice != null) {
-            Log.d(TAG, "TD: " + targetDevice.getName() + "HID: " + hidDevice);
+        if (target != null && hid != null) {
+            Log.d(TAG, "TD: " + target.getName() + "HID: " + hid);
             connect();
         }
     }
@@ -121,13 +119,13 @@ public class MainActivity extends Activity {
 
     protected void onDestroy() {
         super.onDestroy();
-        if (hidDevice != null && targetDevice != null) {
-            hidDevice.disconnect(targetDevice);
+        if (hid != null && target != null) {
+            hid.disconnect(target);
         }
     }
 
     private void getProxy() {
-        btAdapter.getProfileProxy(this, new BluetoothProfile.ServiceListener() {
+        adapter.getProfileProxy(this, new BluetoothProfile.ServiceListener() {
             @SuppressLint("MissingPermission")
             @Override
             public void onServiceConnected(int profile, BluetoothProfile proxy) {
@@ -135,7 +133,7 @@ public class MainActivity extends Activity {
                     BluetoothHidDevice.Callback callback = new BluetoothHidDevice.Callback() {
                         @Override
                         public void onConnectionStateChanged(BluetoothDevice device, final int state) {
-                            if (!device.equals(targetDevice)) return;
+                            if (!device.equals(target)) return;
 
                             runOnUiThread(() -> {
                                 if (state == BluetoothProfile.STATE_DISCONNECTED) {
@@ -192,7 +190,7 @@ public class MainActivity extends Activity {
     }
 
     private void registerHidDevice(BluetoothProfile proxy, BluetoothHidDevice.Callback callback) {
-        hidDevice = (BluetoothHidDevice) proxy;
+        hid = (BluetoothHidDevice) proxy;
 
         BluetoothHidDeviceAppSdpSettings sdp = new BluetoothHidDeviceAppSdpSettings(
                 "BlueHID",
@@ -203,11 +201,11 @@ public class MainActivity extends Activity {
         );
         Executor executor = runnable -> new Thread(runnable).start();
 
-        hidDevice.registerApp(sdp, null, null, executor, callback);
+        hid.registerApp(sdp, null, null, executor, callback);
 
-        hidDevice = (BluetoothHidDevice) proxy;
-        sharedHid = hidDevice;
-        sharedTarget = targetDevice;
+        hid = (BluetoothHidDevice) proxy;
+        hid = hid;
+        target = target;
     }
 
     private void addSectionTitle(String title) {
@@ -243,7 +241,7 @@ public class MainActivity extends Activity {
         );
 
         entry.setOnClickListener(v -> {
-            targetDevice = device;
+            target = device;
 
             Intent intent = new Intent(MainActivity.this, ConnectingActivity.class);
             intent.putExtra("device_name", device.getName());
@@ -261,26 +259,26 @@ public class MainActivity extends Activity {
     private void rebuildDeviceUI() {
         pairedContainer.removeAllViews();
 
-        pairedDevices.clear();
-        pairedDevices.addAll(btAdapter.getBondedDevices());
+        paired.clear();
+        paired.addAll(adapter.getBondedDevices());
 
         addSectionTitle("Paired");
 
         int index = 0;
-        for (BluetoothDevice device : pairedDevices) {
+        for (BluetoothDevice device : paired) {
             addDeviceRow(device, index++);
         }
 
         addSectionTitle("Other Devices");
 
-        for (BluetoothDevice device : discoveredDevices) {
+        for (BluetoothDevice device : discovered) {
             if (isPaired(device)) continue;
             addDeviceRow(device, index++);
         }
     }
 
     private boolean isPaired(BluetoothDevice device) {
-        for (BluetoothDevice d : pairedDevices) {
+        for (BluetoothDevice d : paired) {
             if (d.getAddress().equals(device.getAddress())) return true;
         }
         return false;
@@ -305,7 +303,7 @@ public class MainActivity extends Activity {
 
                 if (!discoveredMap.containsKey(addr)) {
                     discoveredMap.put(addr, device);
-                    discoveredDevices.add(device);
+                    discovered.add(device);
 
                     runOnUiThread(() -> rebuildDeviceUI());
 
@@ -323,11 +321,11 @@ public class MainActivity extends Activity {
         Log.d(TAG, "Receiver registered");
 
 
-        if (btAdapter.isDiscovering()) {
-            btAdapter.cancelDiscovery();
+        if (adapter.isDiscovering()) {
+            adapter.cancelDiscovery();
         }
 
-        btAdapter.startDiscovery();
+        adapter.startDiscovery();
     }
 
     private void connect() {
@@ -336,7 +334,7 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 if (regState == 1) {
-                    hidDevice.connect(targetDevice);
+                    hid.connect(target);
                 } else {
                     handler.postDelayed(this, 500);
                 }
