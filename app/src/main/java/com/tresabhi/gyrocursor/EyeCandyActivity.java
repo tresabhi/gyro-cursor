@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.Handler;
+import android.util.Log;
 import android.widget.Button;
 import android.widget.TextView;
 
@@ -30,19 +31,28 @@ public class EyeCandyActivity extends Activity {
         z.setText(String.valueOf(vz));
 
         Button debug = findViewById(R.id.debugButton);
-        debug.setOnClickListener(v -> moveMouseSquare());
+        debug.setOnClickListener(v -> {
+            Log.d(MainActivity.TAG, "DEBUG BUTTON CLICKED");
+            moveMouseSquare();
+        });
     }
 
     private void moveMouseSquare() {
-        if (MainActivity.sharedHid == null || MainActivity.sharedTarget == null) return;
+        Log.d(MainActivity.TAG, "moveMouseSquare entered");
+
+        if (MainActivity.sharedHid == null || MainActivity.sharedTarget == null) {
+            Log.e(MainActivity.TAG, "HID not ready: sharedHid=" + MainActivity.sharedHid
+                    + " sharedTarget=" + MainActivity.sharedTarget);
+            return;
+        }
 
         Handler handler = new Handler();
 
         byte[][] moves = new byte[][]{
-                new byte[]{0x00, 20, 0},   
-                new byte[]{0x00, 0, 20},   
-                new byte[]{0x00, -20, 0},  
-                new byte[]{0x00, 0, -20}   
+                new byte[]{0x00, 20, 0},
+                new byte[]{0x00, 0, 20},
+                new byte[]{0x00, -20, 0},
+                new byte[]{0x00, 0, -20}
         };
 
         for (int i = 0; i < moves.length; i++) {
@@ -59,9 +69,14 @@ public class EyeCandyActivity extends Activity {
                     return;
                 }
 
+                int state = MainActivity.sharedHid.getConnectionState(MainActivity.sharedTarget);
+                Log.d(MainActivity.TAG, "Connection state = " + state);
+
+                Log.d(MainActivity.TAG, "Sending HID move index=" + index);
+
                 MainActivity.sharedHid.sendReport(
                         MainActivity.sharedTarget,
-                        (byte) 0x02,
+                        (byte) 0x00,
                         moves[index]
                 );
             }, i * 200);
