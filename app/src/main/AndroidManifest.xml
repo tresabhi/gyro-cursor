@@ -29,5 +29,6 @@
             </intent-filter>
         </activity>
         <activity android:name=".ConnectingActivity" />
+        <activity android:name=".ForwardChooserActivity" />
     </application>
 </manifest>
