@@ -154,19 +154,12 @@ public class MainActivity extends Activity implements UpdateView {
     protected void onPause() {
         super.onPause();
         saveValues();
-        if (hidDevice != null & targetDevice != null) {
-            hidDevice.disconnect(targetDevice);
-        }
-        Log.d("mainpain", "on Pause");
     }
 
     protected void onDestroy() {
         super.onDestroy();
-        saveValues();
-        hidDevice.disconnect(targetDevice);
-        if (receiver != null) {
-            unregisterReceiver(receiver);
-            logMessage("mainpain", "Discovery has been stopped");
+        if (hidDevice != null && targetDevice != null) {
+            hidDevice.disconnect(targetDevice);
         }
     }
 
@@ -226,9 +219,17 @@ public class MainActivity extends Activity implements UpdateView {
                                     }
                                 });
 
-                                Thread statusUpdateThread = new Thread(statusUpdateRunnable);
+                                runOnUiThread(() -> {
+                                    if (state == BluetoothProfile.STATE_CONNECTING) {
+                                        toastMessage("Connecting...");
+                                    } else if (state == BluetoothProfile.STATE_CONNECTED) {
+                                        toastMessage("Connected");
 
-                                statusUpdateThread.start();
+                                        Intent intent = new Intent(MainActivity.this, ForwardChooserActivity.class);
+                                        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                                        startActivity(intent);
+                                    }
+                                });
                             }
                         }
 
