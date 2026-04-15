@@ -202,35 +202,26 @@ public class MainActivity extends Activity implements UpdateView {
                     BluetoothHidDevice.Callback callback = new BluetoothHidDevice.Callback() {
                         @Override
                         public void onConnectionStateChanged(BluetoothDevice device, final int state) {
-                            if (device.equals(targetDevice)) {
-                                Runnable statusUpdateRunnable = () -> runOnUiThread(() -> {
-                                    if (state == BluetoothProfile.STATE_DISCONNECTED) {
-                                        logMessage("mainpain", "HID Device currently disconnected from: " + device.getName());
-                                    } else if (state == BluetoothProfile.STATE_CONNECTING) {
-                                        toastMessage("Connecting...");
-                                    } else if (state == BluetoothProfile.STATE_CONNECTED) {
-                                        toastMessage("Connected");
+                            if (!device.equals(targetDevice)) return;
 
-                                        Intent intent = new Intent(MainActivity.this, ForwardChooserActivity.class);
-                                        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                                        startActivity(intent);
-                                    } else if (state == BluetoothProfile.STATE_DISCONNECTING) {
-                                        logMessage("mainpain", "HID Device currently disconnecting from: " + device.getName());
-                                    }
-                                });
+                            runOnUiThread(() -> {
+                                if (state == BluetoothProfile.STATE_DISCONNECTED) {
+                                    logMessage("mainpain", "Disconnected: " + device.getName());
 
-                                runOnUiThread(() -> {
-                                    if (state == BluetoothProfile.STATE_CONNECTING) {
-                                        toastMessage("Connecting...");
-                                    } else if (state == BluetoothProfile.STATE_CONNECTED) {
-                                        toastMessage("Connected");
+                                } else if (state == BluetoothProfile.STATE_CONNECTING) {
+                                    toastMessage("Connecting...");
 
-                                        Intent intent = new Intent(MainActivity.this, ForwardChooserActivity.class);
-                                        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                                        startActivity(intent);
-                                    }
-                                });
-                            }
+                                } else if (state == BluetoothProfile.STATE_CONNECTED) {
+                                    toastMessage("Connected");
+
+                                    Intent intent = new Intent(MainActivity.this, ForwardChooserActivity.class);
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                                    startActivity(intent);
+
+                                } else if (state == BluetoothProfile.STATE_DISCONNECTING) {
+                                    logMessage("mainpain", "Disconnecting: " + device.getName());
+                                }
+                            });
                         }
 
                         @Override
@@ -320,6 +311,7 @@ public class MainActivity extends Activity implements UpdateView {
             Intent intent = new Intent(MainActivity.this, ConnectingActivity.class);
             intent.putExtra("device_name", device.getName());
             intent.putExtra("device_address", device.getAddress());
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(intent);
 
             connect();
