@@ -51,9 +51,9 @@ public class EyeCandyActivity extends Activity {
 
         byte[][] moves = new byte[][]{
                 new byte[]{0x00, 20, 0},
-//                new byte[]{0x00, 0, 20},
-//                new byte[]{0x00, -20, 0},
-//                new byte[]{0x00, 0, -20}
+                new byte[]{0x00, 0, 20},
+                new byte[]{0x00, -20, 0},
+                new byte[]{0x00, 0, -20}
         };
 
         for (int i = 0; i < moves.length; i++) {
@@ -77,7 +77,7 @@ public class EyeCandyActivity extends Activity {
 
                 MainActivity.hid.sendReport(
                         MainActivity.target,
-                        (byte) 0x00,
+                        (byte) 0x01,
                         moves[index]
                 );
             }, i * 200);
