@@ -56,31 +56,35 @@ public class EyeCandyActivity extends Activity {
                 new byte[]{0x00, 0, -20}
         };
 
-        for (int i = 0; i < moves.length; i++) {
-            int index = i;
-            handler.postDelayed(() -> {
-                if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                    // TODO: Consider calling
-                    //    ActivityCompat#requestPermissions
-                    // here to request the missing permissions, and then overriding
-                    //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                    //                                          int[] grantResults)
-                    // to handle the case where the user grants the permission. See the documentation
-                    // for ActivityCompat#requestPermissions for more details.
-                    return;
-                }
+        for (int dir = 0; dir < moves.length; dir++) {
+            byte dx = moves[dir][1];
+            byte dy = moves[dir][2];
 
-                int state = MainActivity.hid.getConnectionState(MainActivity.target);
-                Log.d(TAG, "Connection state = " + state);
+            for (int step = 0; step < 5; step++) {
 
-                Log.d(TAG, "Sending HID move index=" + index);
+                int delay = (dir * 5 + step) * 8;
 
-                MainActivity.hid.sendReport(
-                        MainActivity.target,
-                        (byte) 0x01,
-                        moves[index]
-                );
-            }, i * 200);
+                handler.postDelayed(() -> {
+
+                    if (ActivityCompat.checkSelfPermission(
+                            this,
+                            Manifest.permission.BLUETOOTH_CONNECT
+                    ) != PackageManager.PERMISSION_GRANTED) {
+                        return;
+                    }
+
+                    MainActivity.hid.sendReport(
+                            MainActivity.target,
+                            (byte) 0x01,
+                            new byte[]{
+                                    0x00,
+                                    (byte)(dx / 5),
+                                    (byte)(dy / 5)
+                            }
+                    );
+
+                }, delay);
+            }
         }
     }
 }
