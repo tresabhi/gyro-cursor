@@ -16,8 +16,6 @@ import android.widget.TextView;
 import androidx.core.app.ActivityCompat;
 
 public class EyeCandyActivity extends Activity implements SensorEventListener {
-    private static final String TAG = "GYRO_DEBUG_EYE";
-
     private SensorManager sensorManager;
     private Sensor gyroscope;
 
@@ -26,6 +24,11 @@ public class EyeCandyActivity extends Activity implements SensorEventListener {
 
     private volatile float gyroX = 0f;
     private volatile float gyroY = 0f;
+    private volatile float gyroZ = 0f;
+
+    private float carryU = 0f;
+    private float carryV = 0f;
+    private float carryZ = 0f;
 
     private TextView xView;
     private TextView yView;
@@ -93,11 +96,12 @@ public class EyeCandyActivity extends Activity implements SensorEventListener {
 
         gyroX = event.values[0];
         gyroY = event.values[1];
+        gyroZ = event.values[2];
 
         runOnUiThread(() -> {
             xView.setText(String.valueOf(gyroX));
             yView.setText(String.valueOf(gyroY));
-            zView.setText(String.valueOf(event.values[2]));
+            zView.setText(String.valueOf(gyroZ));
         });
     }
 
@@ -150,16 +154,23 @@ public class EyeCandyActivity extends Activity implements SensorEventListener {
 
         float sensitivity = 12f;
 
-        int dx = (int) (gyroY * sensitivity);
-        int dy = (int) (gyroX * sensitivity);
+        float rawX = gyroY * sensitivity;
+        float rawY = gyroX * sensitivity;
+        float rawZ = gyroZ * sensitivity;
 
-        dx = clamp(dx, -15, 15);
-        dy = clamp(dy, -15, 15);
+        carryU += rawZ;
+        carryV += rawY;
 
-//        dx *= -1;
-        dy *= -1;
+        int du = (int) carryU;
+        int dv = (int) carryV;
 
-        if (dx == 0 && dy == 0) {
+        carryU -= du;
+        carryV -= dv;
+
+        du = clamp(du, -15, 15);
+        dv = clamp(dv, -15, 15);
+
+        if (du == 0 && dv == 0) {
             return;
         }
 
@@ -168,8 +179,8 @@ public class EyeCandyActivity extends Activity implements SensorEventListener {
                 (byte) 0x01,
                 new byte[]{
                         0x00,
-                        (byte) dx,
-                        (byte) dy
+                        (byte) du,
+                        (byte) dv
                 }
         );
     }
