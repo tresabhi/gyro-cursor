@@ -170,6 +170,9 @@ public class EyeCandyActivity extends Activity implements SensorEventListener {
         du = clamp(du, -15, 15);
         dv = clamp(dv, -15, 15);
 
+        du *= -1;
+        dv *= -1;
+
         if (du == 0 && dv == 0) {
             return;
         }
