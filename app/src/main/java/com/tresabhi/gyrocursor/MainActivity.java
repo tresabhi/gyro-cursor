@@ -12,7 +12,13 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Color;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.HandlerThread;
 import android.util.Log;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -24,7 +30,7 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.Executors;
 
-public class MainActivity extends Activity {
+public class MainActivity extends Activity implements SensorEventListener {
 
     private static final String TAG = "GyroCursor";
 
@@ -61,7 +67,19 @@ public class MainActivity extends Activity {
     private final Set<String> discoveredAddresses = new HashSet<>();
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothHidDevice hidDeviceProfile;
+    private BluetoothDevice targetDevice;
 
+    // Sensors & Background Processing
+    private SensorManager sensorManager;
+    private Sensor gyroscope;
+    private HandlerThread hidThread;
+    private Handler hidHandler;
+
+    // Accumulators for sub-pixel gyro updates
+    private float carryU = 0f;
+    private float carryV = 0f;
+
+    // UI Elements
     private TextView statusTextView;
     private final BluetoothHidDevice.Callback callback = new BluetoothHidDevice.Callback() {
         @Override
@@ -73,9 +91,20 @@ public class MainActivity extends Activity {
         @Override
         public void onConnectionStateChanged(BluetoothDevice device, int state) {
             Log.d(TAG, "Connection state changed: " + state);
+            if (state == BluetoothProfile.STATE_CONNECTED) {
+                targetDevice = device;
+                runOnUiThread(() -> statusTextView.setText("Connected to: " + device.getAddress()));
+                startGyroscope();
+            } else if (state == BluetoothProfile.STATE_DISCONNECTED) {
+                if (targetDevice != null && targetDevice.equals(device)) {
+                    targetDevice = null;
+                    stopGyroscope();
+                    runOnUiThread(() -> statusTextView.setText("Disconnected. Standby."));
+                }
+            }
         }
     };
-    private TextView deviceListTextView;
+    private LinearLayout deviceContainerLayout;
     private final BroadcastReceiver discoveryReceiver = new BroadcastReceiver() {
         @SuppressLint("MissingPermission")
         @Override
@@ -88,8 +117,9 @@ public class MainActivity extends Activity {
 
                     if (discoveredAddresses.add(address)) {
                         String name = device.getName();
-                        String displayLine = (name != null ? name : "Unknown Device") + " [" + address + "]";
-                        runOnUiThread(() -> deviceListTextView.append(displayLine + "\n"));
+                        String displayName = (name != null ? name : "Unknown Device") + "\n[" + address + "]";
+
+                        runOnUiThread(() -> addDeviceButton(device, displayName));
                     }
                 }
             }
@@ -101,6 +131,15 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         createSimpleUI();
+
+        // Initialize Sensors
+        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
+
+        // Worker Thread initialization for sending Bluetooth HID reports safely off-UI
+        hidThread = new HandlerThread("hid-report-thread");
+        hidThread.start();
+        hidHandler = new Handler(hidThread.getLooper());
 
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         if (bluetoothAdapter == null) {
@@ -140,16 +179,42 @@ public class MainActivity extends Activity {
         scrollParams.setMargins(0, 24, 0, 0);
         scrollView.setLayoutParams(scrollParams);
         scrollView.setBackgroundColor(Color.WHITE);
-        scrollView.setPadding(16, 16, 16, 16);
 
-        deviceListTextView = new TextView(this);
-        deviceListTextView.setTextSize(15);
-        deviceListTextView.setTextColor(Color.BLACK);
+        // Vertical layout container that holds target device rows dynamically
+        deviceContainerLayout = new LinearLayout(this);
+        deviceContainerLayout.setOrientation(LinearLayout.VERTICAL);
+        deviceContainerLayout.setPadding(16, 16, 16, 16);
 
-        scrollView.addView(deviceListTextView);
+        scrollView.addView(deviceContainerLayout);
         rootLayout.addView(scrollView);
 
         setContentView(rootLayout);
+    }
+
+    @SuppressLint("MissingPermission")
+    private void addDeviceButton(BluetoothDevice device, String displayName) {
+        Button deviceButton = new Button(this);
+        deviceButton.setText(displayName);
+        deviceButton.setTransformationMethod(null); // Keeps casing intact
+
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, 0, 0, 16);
+        deviceButton.setLayoutParams(params);
+
+        deviceButton.setOnClickListener(v -> {
+            if (bluetoothAdapter != null && bluetoothAdapter.isDiscovering()) {
+                bluetoothAdapter.cancelDiscovery();
+            }
+            statusTextView.setText("Connecting to: " + device.getAddress() + "...");
+
+            // Connect to selected device host target profile mapping
+            if (hidDeviceProfile != null) {
+                hidDeviceProfile.connect(device);
+            }
+        });
+
+        deviceContainerLayout.addView(deviceButton);
     }
 
     @SuppressLint("MissingPermission")
@@ -174,6 +239,7 @@ public class MainActivity extends Activity {
             public void onServiceDisconnected(int profile) {
                 if (profile == BluetoothProfile.HID_DEVICE) {
                     hidDeviceProfile = null;
+                    stopGyroscope();
                     runOnUiThread(() -> statusTextView.setText("HID Profile State: Disconnected"));
                 }
             }
@@ -187,19 +253,98 @@ public class MainActivity extends Activity {
                 bluetoothAdapter.cancelDiscovery();
             }
 
+            stopGyroscope();
             discoveredAddresses.clear();
-            deviceListTextView.setText("");
+            deviceContainerLayout.removeAllViews();
 
             bluetoothAdapter.startDiscovery();
         }
     }
 
+    private void startGyroscope() {
+        if (gyroscope != null) {
+            sensorManager.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_GAME);
+        }
+    }
+
+    private void stopGyroscope() {
+        sensorManager.unregisterListener(this);
+    }
+
+    @Override
+    public void onSensorChanged(SensorEvent event) {
+        if (event.sensor.getType() == Sensor.TYPE_GYROSCOPE) {
+            final float gyroX = event.values[0];
+            final float gyroY = event.values[1];
+            final float gyroZ = event.values[2];
+
+            // Pipeline off the main UI thread immediately
+            hidHandler.post(() -> processAndSendHid(gyroX, gyroY, gyroZ));
+        }
+    }
+
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {
+    }
+
+    private void processAndSendHid(float gx, float gy, float gz) {
+        if (hidDeviceProfile == null || targetDevice == null) {
+            return;
+        }
+
+        // Adjust sensitivity scalar to change pointer translation speeds
+        float sensitivity = 15f;
+        float rawY = gx * sensitivity;
+        float rawZ = gz * sensitivity;
+
+        // Carry fractions over into accumulation variables
+        carryU += rawZ;
+        carryV += rawY;
+
+        int du = (int) carryU;
+        int dv = (int) carryV;
+
+        carryU -= du;
+        carryV -= dv;
+
+        // Inverse delta vector direction to map natural hand tilt directions
+        du *= -1;
+        dv *= -1;
+
+        if (du == 0 && dv == 0) {
+            return;
+        }
+
+        // Clip delta components strictly between limits specified inside report byte arrays (-127 to 127)
+        byte reportX = (byte) Math.max(-127, Math.min(127, du));
+        byte reportY = (byte) Math.max(-127, Math.min(127, dv));
+
+        byte[] reportBuffer = new byte[]{
+                (byte) 0x00, // Buttons byte mask state (0x00 = No buttons clicked)
+                reportX,     // X-axis Relative Move Value
+                reportY      // Y-axis Relative Move Value
+        };
+
+        // Fire standard raw input pointer update straight into remote active host
+        hidDeviceProfile.sendReport(targetDevice, (byte) 0x01, reportBuffer);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // Keep tracking if running background connection, otherwise cleanup gracefully
+    }
+
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        stopGyroscope();
         try {
             unregisterReceiver(discoveryReceiver);
         } catch (IllegalArgumentException ignored) {
+        }
+        if (hidThread != null) {
+            hidThread.quitSafely();
         }
         if (bluetoothAdapter != null && hidDeviceProfile != null) {
             bluetoothAdapter.closeProfileProxy(BluetoothProfile.HID_DEVICE, hidDeviceProfile);
