@@ -69,17 +69,14 @@ public class MainActivity extends Activity implements SensorEventListener {
     private BluetoothHidDevice hidDeviceProfile;
     private BluetoothDevice targetDevice;
 
-    // Sensors & Background Processing
     private SensorManager sensorManager;
     private Sensor gyroscope;
     private HandlerThread hidThread;
     private Handler hidHandler;
 
-    // Accumulators for sub-pixel gyro updates
     private float carryU = 0f;
     private float carryV = 0f;
 
-    // UI Elements
     private TextView statusTextView;
     private final BluetoothHidDevice.Callback callback = new BluetoothHidDevice.Callback() {
         @Override
@@ -132,11 +129,9 @@ public class MainActivity extends Activity implements SensorEventListener {
 
         createSimpleUI();
 
-        // Initialize Sensors
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
 
-        // Worker Thread initialization for sending Bluetooth HID reports safely off-UI
         hidThread = new HandlerThread("hid-report-thread");
         hidThread.start();
         hidHandler = new Handler(hidThread.getLooper());
@@ -180,7 +175,6 @@ public class MainActivity extends Activity implements SensorEventListener {
         scrollView.setLayoutParams(scrollParams);
         scrollView.setBackgroundColor(Color.WHITE);
 
-        // Vertical layout container that holds target device rows dynamically
         deviceContainerLayout = new LinearLayout(this);
         deviceContainerLayout.setOrientation(LinearLayout.VERTICAL);
         deviceContainerLayout.setPadding(16, 16, 16, 16);
@@ -208,7 +202,6 @@ public class MainActivity extends Activity implements SensorEventListener {
             }
             statusTextView.setText("Connecting to: " + device.getAddress() + "...");
 
-            // Connect to selected device host target profile mapping
             if (hidDeviceProfile != null) {
                 hidDeviceProfile.connect(device);
             }
@@ -292,12 +285,10 @@ public class MainActivity extends Activity implements SensorEventListener {
             return;
         }
 
-        // Adjust sensitivity scalar to change pointer translation speeds
         float sensitivity = 15f;
         float rawY = gx * sensitivity;
         float rawZ = gz * sensitivity;
 
-        // Carry fractions over into accumulation variables
         carryU += rawZ;
         carryV += rawY;
 
@@ -307,7 +298,6 @@ public class MainActivity extends Activity implements SensorEventListener {
         carryU -= du;
         carryV -= dv;
 
-        // Inverse delta vector direction to map natural hand tilt directions
         du *= -1;
         dv *= -1;
 
@@ -315,17 +305,15 @@ public class MainActivity extends Activity implements SensorEventListener {
             return;
         }
 
-        // Clip delta components strictly between limits specified inside report byte arrays (-127 to 127)
         byte reportX = (byte) Math.max(-127, Math.min(127, du));
         byte reportY = (byte) Math.max(-127, Math.min(127, dv));
 
         byte[] reportBuffer = new byte[]{
-                (byte) 0x00, // Buttons byte mask state (0x00 = No buttons clicked)
-                reportX,     // X-axis Relative Move Value
-                reportY      // Y-axis Relative Move Value
+                (byte) 0x00,
+                reportX,
+                reportY
         };
 
-        // Fire standard raw input pointer update straight into remote active host
         hidDeviceProfile.sendReport(targetDevice, (byte) 0x01, reportBuffer);
     }
 
