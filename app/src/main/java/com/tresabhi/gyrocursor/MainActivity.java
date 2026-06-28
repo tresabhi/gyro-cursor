@@ -133,6 +133,9 @@ public class MainActivity extends Activity implements SensorEventListener {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        BluetoothPermissionManager manager = new BluetoothPermissionManager(this);
+        manager.checkAndRequestPermissions();
+
         createSimpleUI();
 
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
