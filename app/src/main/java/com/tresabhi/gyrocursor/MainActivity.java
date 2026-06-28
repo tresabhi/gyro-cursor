@@ -1,5 +1,6 @@
 package com.tresabhi.gyrocursor;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
@@ -25,6 +26,8 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+
+import androidx.annotation.RequiresPermission;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -264,6 +267,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         sensorManager.unregisterListener(this);
     }
 
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     @Override
     public void onSensorChanged(SensorEvent event) {
         if (event.sensor.getType() == Sensor.TYPE_GYROSCOPE) {
@@ -271,7 +275,6 @@ public class MainActivity extends Activity implements SensorEventListener {
             final float gyroY = event.values[1];
             final float gyroZ = event.values[2];
 
-            // Pipeline off the main UI thread immediately
             hidHandler.post(() -> processAndSendHid(gyroX, gyroY, gyroZ));
         }
     }
@@ -280,6 +283,7 @@ public class MainActivity extends Activity implements SensorEventListener {
     public void onAccuracyChanged(Sensor sensor, int accuracy) {
     }
 
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private void processAndSendHid(float gx, float gy, float gz) {
         if (hidDeviceProfile == null || targetDevice == null) {
             return;
@@ -305,13 +309,10 @@ public class MainActivity extends Activity implements SensorEventListener {
             return;
         }
 
-        byte reportX = (byte) Math.max(-127, Math.min(127, du));
-        byte reportY = (byte) Math.max(-127, Math.min(127, dv));
-
         byte[] reportBuffer = new byte[]{
                 (byte) 0x00,
-                reportX,
-                reportY
+                (byte) du,
+                (byte) dv
         };
 
         hidDeviceProfile.sendReport(targetDevice, (byte) 0x01, reportBuffer);
@@ -320,7 +321,6 @@ public class MainActivity extends Activity implements SensorEventListener {
     @Override
     protected void onPause() {
         super.onPause();
-        // Keep tracking if running background connection, otherwise cleanup gracefully
     }
 
     @Override
