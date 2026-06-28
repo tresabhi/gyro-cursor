@@ -22,20 +22,11 @@ public class EyeCandyActivity extends Activity implements SensorEventListener {
     private Handler hidHandler;
     private HandlerThread hidThread;
 
-    private volatile float gyroX = 0f;
-    private volatile float gyroY = 0f;
-    private volatile float gyroZ = 0f;
-
     private float carryU = 0f;
     private float carryV = 0f;
-    private float carryZ = 0f;
 
-    private TextView xView;
-    private TextView yView;
-    private TextView zView;
-
-    private boolean running = false;
-    private Runnable mouseLoop;
+    private TextView xView, yView, zView;
+    private boolean hasBluetoothPermission = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -51,7 +42,6 @@ public class EyeCandyActivity extends Activity implements SensorEventListener {
 
         hidThread = new HandlerThread("hid-thread");
         hidThread.start();
-
         hidHandler = new Handler(hidThread.getLooper());
     }
 
@@ -59,33 +49,23 @@ public class EyeCandyActivity extends Activity implements SensorEventListener {
     protected void onResume() {
         super.onResume();
 
-        sensorManager.registerListener(
-                this,
-                gyroscope,
-                SensorManager.SENSOR_DELAY_GAME
-        );
+        hasBluetoothPermission = ActivityCompat.checkSelfPermission(
+                this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED;
 
-        startMouseLoop();
+        if (gyroscope != null) {
+            sensorManager.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_GAME);
+        }
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-
         sensorManager.unregisterListener(this);
-        stopMouseLoop();
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-
-        stopMouseLoop();
-
-        if (hidHandler != null) {
-            hidHandler.removeCallbacksAndMessages(null);
-        }
-
         if (hidThread != null) {
             hidThread.quitSafely();
         }
@@ -93,10 +73,11 @@ public class EyeCandyActivity extends Activity implements SensorEventListener {
 
     @Override
     public void onSensorChanged(SensorEvent event) {
+        final float gyroX = event.values[0];
+        final float gyroY = event.values[1];
+        final float gyroZ = event.values[2];
 
-        gyroX = event.values[0];
-        gyroY = event.values[1];
-        gyroZ = event.values[2];
+        hidHandler.post(() -> processAndSendHid(gyroX, gyroY, gyroZ));
 
         runOnUiThread(() -> {
             xView.setText(String.valueOf(gyroX));
@@ -109,54 +90,14 @@ public class EyeCandyActivity extends Activity implements SensorEventListener {
     public void onAccuracyChanged(Sensor sensor, int accuracy) {
     }
 
-    private void startMouseLoop() {
-
-        if (running) return;
-
-        running = true;
-
-        mouseLoop = new Runnable() {
-            @Override
-            public void run() {
-
-                if (!running) return;
-
-                sendGyroMouseReport();
-
-                hidHandler.postDelayed(this, 8);
-            }
-        };
-
-        hidHandler.post(mouseLoop);
-    }
-
-    private void stopMouseLoop() {
-
-        running = false;
-
-        if (hidHandler != null && mouseLoop != null) {
-            hidHandler.removeCallbacks(mouseLoop);
-        }
-    }
-
-    private void sendGyroMouseReport() {
-
-        if (MainActivity.hid == null || MainActivity.target == null) {
+    private void processAndSendHid(float gx, float gy, float gz) {
+        if (!hasBluetoothPermission || MainActivity.hid == null || MainActivity.target == null) {
             return;
         }
 
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.BLUETOOTH_CONNECT
-        ) != PackageManager.PERMISSION_GRANTED) {
-            return;
-        }
-
-        float sensitivity = 12f;
-
-        float rawX = gyroY * sensitivity;
-        float rawY = gyroX * sensitivity;
-        float rawZ = gyroZ * sensitivity;
+        float sensitivity = 1f;
+        float rawY = gx * sensitivity;
+        float rawZ = gz * sensitivity;
 
         carryU += rawZ;
         carryV += rawY;
@@ -167,9 +108,6 @@ public class EyeCandyActivity extends Activity implements SensorEventListener {
         carryU -= du;
         carryV -= dv;
 
-        du = clamp(du, -15, 15);
-        dv = clamp(dv, -15, 15);
-
         du *= -1;
         dv *= -1;
 
@@ -177,18 +115,20 @@ public class EyeCandyActivity extends Activity implements SensorEventListener {
             return;
         }
 
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return;
+        }
         MainActivity.hid.sendReport(
                 MainActivity.target,
                 (byte) 0x01,
-                new byte[]{
-                        0x00,
-                        (byte) du,
-                        (byte) dv
-                }
+                new byte[]{0x00, (byte) du, (byte) dv}
         );
-    }
-
-    private int clamp(int v, int min, int max) {
-        return Math.max(min, Math.min(max, v));
     }
 }
