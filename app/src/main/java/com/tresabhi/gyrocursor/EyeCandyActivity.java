@@ -13,6 +13,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.widget.TextView;
 
+import androidx.annotation.RequiresPermission;
 import androidx.core.app.ActivityCompat;
 
 public class EyeCandyActivity extends Activity implements SensorEventListener {
@@ -90,6 +91,7 @@ public class EyeCandyActivity extends Activity implements SensorEventListener {
     public void onAccuracyChanged(Sensor sensor, int accuracy) {
     }
 
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private void processAndSendHid(float gx, float gy, float gz) {
         if (!hasBluetoothPermission || MainActivity.hid == null || MainActivity.target == null) {
             return;
@@ -115,16 +117,6 @@ public class EyeCandyActivity extends Activity implements SensorEventListener {
             return;
         }
 
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-            // TODO: Consider calling
-            //    ActivityCompat#requestPermissions
-            // here to request the missing permissions, and then overriding
-            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-            //                                          int[] grantResults)
-            // to handle the case where the user grants the permission. See the documentation
-            // for ActivityCompat#requestPermissions for more details.
-            return;
-        }
         MainActivity.hid.sendReport(
                 MainActivity.target,
                 (byte) 0x01,

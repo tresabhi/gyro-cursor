@@ -115,12 +115,22 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
+        if (adapter != null && adapter.isDiscovering()) {
+            adapter.cancelDiscovery();
+        }
     }
 
+    @Override
     protected void onDestroy() {
         super.onDestroy();
         if (hid != null && target != null) {
             hid.disconnect(target);
+        }
+        if (receiver != null) {
+            try {
+                unregisterReceiver(receiver);
+            } catch (IllegalArgumentException ignored) {
+            }
         }
     }
 
@@ -204,8 +214,6 @@ public class MainActivity extends Activity {
         hid.registerApp(sdp, null, null, executor, callback);
 
         hid = (BluetoothHidDevice) proxy;
-        hid = hid;
-        target = target;
     }
 
     private void addSectionTitle(String title) {
@@ -242,6 +250,11 @@ public class MainActivity extends Activity {
 
         entry.setOnClickListener(v -> {
             target = device;
+
+            if (adapter != null && adapter.isDiscovering()) {
+                adapter.cancelDiscovery();
+                Log.d(TAG, "Discovery explicitly canceled because device was selected.");
+            }
 
             Intent intent = new Intent(MainActivity.this, ConnectingActivity.class);
             intent.putExtra("device_name", device.getName());
@@ -336,7 +349,7 @@ public class MainActivity extends Activity {
                 if (regState == 1) {
                     hid.connect(target);
                 } else {
-                    handler.postDelayed(this, 500);
+                    handler.post(this);
                 }
             }
         };
@@ -346,9 +359,8 @@ public class MainActivity extends Activity {
 
     private void toastMessage(String message) {
         Log.d(TAG, message);
-        ((Activity) this).runOnUiThread(() -> {
-            Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
-        });
+        (this).runOnUiThread(() ->
+                Toast.makeText(this, message, Toast.LENGTH_SHORT).show());
     }
 
     private byte[] getDescriptor() {
