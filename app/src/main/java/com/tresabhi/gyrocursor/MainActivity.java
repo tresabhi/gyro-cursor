@@ -1,8 +1,5 @@
 package com.tresabhi.gyrocursor;
 
-import static android.bluetooth.BluetoothHidDevice.SUBCLASS1_KEYBOARD;
-
-import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
@@ -14,384 +11,198 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.os.Bundle;
-import android.os.Handler;
 import android.util.Log;
-import android.view.View;
-import android.widget.ImageView;
+import android.view.ViewGroup;
+import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
 
-import androidx.core.app.ActivityCompat;
-import androidx.core.view.WindowCompat;
-import androidx.core.view.WindowInsetsControllerCompat;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.Executors;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.concurrent.Executor;
-
-
-@SuppressLint("MissingPermission")
 public class MainActivity extends Activity {
-    private static final String TAG = "GYRO_DEBUG_MAIN";
 
-    public static BluetoothHidDevice hid;
-    public static BluetoothDevice target;
-    private final BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-    private final ArrayList<BluetoothDevice> paired = new ArrayList<>();
-    private final ArrayList<BluetoothDevice> discovered = new ArrayList<>();
-    private final HashMap<String, BluetoothDevice> discoveredMap = new HashMap<>();
-    private BroadcastReceiver receiver;
+    private static final String TAG = "GyroCursor";
 
-    private LinearLayout pairedContainer;
+    private static final byte[] HID_DESCRIPTOR = new byte[]{
+            (byte) 0x05, (byte) 0x01, // Usage Page (Generic Desktop Ctrls)
+            (byte) 0x09, (byte) 0x02, // Usage (Mouse)
+            (byte) 0xA1, (byte) 0x01, // Collection (Application)
+            (byte) 0x09, (byte) 0x01, //   Usage (Pointer)
+            (byte) 0xA1, (byte) 0x00, //   Collection (Physical)
+            (byte) 0x05, (byte) 0x09, //     Usage Page (Button)
+            (byte) 0x19, (byte) 0x01, //     Usage Minimum (1)
+            (byte) 0x29, (byte) 0x03, //     Usage Maximum (3)
+            (byte) 0x15, (byte) 0x00, //     Logical Minimum (0)
+            (byte) 0x25, (byte) 0x01, //     Logical Maximum (1)
+            (byte) 0x95, (byte) 0x03, //     Report Count (3)
+            (byte) 0x75, (byte) 0x01, //     Report Size (1)
+            (byte) 0x81, (byte) 0x02, //     Input (Data, Var, Abs)
+            (byte) 0x95, (byte) 0x01, //     Report Count (1)
+            (byte) 0x75, (byte) 0x05, //     Report Size (5)
+            (byte) 0x81, (byte) 0x03, //     Input (Cnst, Var, Abs)
+            (byte) 0x05, (byte) 0x01, //
+            (byte) 0x09, (byte) 0x30,
+            (byte) 0x09, (byte) 0x31,
+            (byte) 0x15, (byte) 0x81,
+            (byte) 0x25, (byte) 0x7F,
+            (byte) 0x75, (byte) 0x08,
+            (byte) 0x95, (byte) 0x02, // also 0x03
+            (byte) 0x81, (byte) 0x06,
 
-    private int regState;
+            (byte) 0xC0,
+            (byte) 0xC0
+    };
 
+    private final Set<String> discoveredAddresses = new HashSet<>();
+    private BluetoothAdapter bluetoothAdapter;
+    private BluetoothHidDevice hidDeviceProfile;
+
+    private TextView statusTextView;
+    private final BluetoothHidDevice.Callback callback = new BluetoothHidDevice.Callback() {
+        @Override
+        public void onAppStatusChanged(BluetoothDevice pluggedDevice, boolean registered) {
+            Log.d(TAG, "HID registration status changed. Registered: " + registered);
+            runOnUiThread(() -> statusTextView.setText("HID Profile State: " + (registered ? "Registered" : "Unregistered")));
+        }
+
+        @Override
+        public void onConnectionStateChanged(BluetoothDevice device, int state) {
+            Log.d(TAG, "Connection state changed: " + state);
+        }
+    };
+    private TextView deviceListTextView;
+    private final BroadcastReceiver discoveryReceiver = new BroadcastReceiver() {
+        @SuppressLint("MissingPermission")
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            if (BluetoothDevice.ACTION_FOUND.equals(action)) {
+                BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                if (device != null) {
+                    String address = device.getAddress();
+
+                    if (discoveredAddresses.add(address)) {
+                        String name = device.getName();
+                        String displayLine = (name != null ? name : "Unknown Device") + " [" + address + "]";
+                        runOnUiThread(() -> deviceListTextView.append(displayLine + "\n"));
+                    }
+                }
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        Log.d(TAG, "onCreate ran");
         super.onCreate(savedInstanceState);
 
-        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        createSimpleUI();
 
-        WindowInsetsControllerCompat controller =
-                new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView());
-
-        controller.hide(android.view.WindowInsets.Type.statusBars());
-        controller.setSystemBarsBehavior(
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        );
-
-        setContentView(R.layout.device_selector);
-
-        pairedContainer = findViewById(R.id.container);
-        String[] devices = {"TRESLAPTOP", "OORT_CLOUD", "TrèsAuditory", "fedora", "Someone’s iPad", "TrèsTemporal"};
-        int index = 0;
-
-        for (String device : devices) {
-            View entry = getLayoutInflater().inflate(R.layout.device_selector_entry_mixed, pairedContainer, false);
-            TextView nameView = entry.findViewById(R.id.name);
-            ImageView iconView = entry.findViewById(R.id.imageView);
-
-            nameView.setText(device);
-            pairedContainer.addView(entry);
-            iconView.setImageResource(index++ % 2 == 0 ? R.drawable.mixed_icon : R.drawable.computer_icon);
-        }
-
-        BluetoothPermissionManager bluetoothPermissionManager = new BluetoothPermissionManager(this);
-        bluetoothPermissionManager.checkAndRequestPermissions();
-        getProxy();
-        rebuildDeviceUI();
-        findAvailableDevices();
-
-        if (adapter.isDiscovering()) {
-            adapter.cancelDiscovery();
-        }
-
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN)
-                != PackageManager.PERMISSION_GRANTED) {
-            Log.e(TAG, "BLUETOOTH_SCAN not granted");
+        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        if (bluetoothAdapter == null) {
+            statusTextView.setText("Error: Bluetooth not supported.");
             return;
         }
 
-        boolean started = adapter.startDiscovery();
-        Log.d(TAG, "startDiscovery returned=" + started);
+        setupHidProfile();
+
+        IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
+        registerReceiver(discoveryReceiver, filter);
+
+        startDeviceDiscovery();
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
-        getProxy();
-        Log.d(TAG, "on Resume");
-        if (target != null && hid != null) {
-            Log.d(TAG, "TD: " + target.getName() + "HID: " + hid);
-            connect();
-        }
+    private void createSimpleUI() {
+        LinearLayout rootLayout = new LinearLayout(this);
+        rootLayout.setOrientation(LinearLayout.VERTICAL);
+        rootLayout.setPadding(32, 32, 32, 32);
+        rootLayout.setBackgroundColor(Color.parseColor("#F5F5F7"));
+
+        statusTextView = new TextView(this);
+        statusTextView.setText("HID Profile State: Initializing...");
+        statusTextView.setTextSize(16);
+        statusTextView.setPadding(0, 0, 0, 16);
+        statusTextView.setTextColor(Color.DKGRAY);
+        rootLayout.addView(statusTextView);
+
+        Button scanButton = new Button(this);
+        scanButton.setText("Scan for Devices");
+        scanButton.setOnClickListener(v -> startDeviceDiscovery());
+        rootLayout.addView(scanButton);
+
+        ScrollView scrollView = new ScrollView(this);
+        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.0f);
+        scrollParams.setMargins(0, 24, 0, 0);
+        scrollView.setLayoutParams(scrollParams);
+        scrollView.setBackgroundColor(Color.WHITE);
+        scrollView.setPadding(16, 16, 16, 16);
+
+        deviceListTextView = new TextView(this);
+        deviceListTextView.setTextSize(15);
+        deviceListTextView.setTextColor(Color.BLACK);
+
+        scrollView.addView(deviceListTextView);
+        rootLayout.addView(scrollView);
+
+        setContentView(rootLayout);
     }
 
-    @Override
-    protected void onPause() {
-        super.onPause();
-        if (adapter != null && adapter.isDiscovering()) {
-            adapter.cancelDiscovery();
+    @SuppressLint("MissingPermission")
+    private void setupHidProfile() {
+        bluetoothAdapter.getProfileProxy(this, new BluetoothProfile.ServiceListener() {
+            @Override
+            public void onServiceConnected(int profile, BluetoothProfile proxy) {
+                if (profile == BluetoothProfile.HID_DEVICE) {
+                    hidDeviceProfile = (BluetoothHidDevice) proxy;
+
+                    BluetoothHidDeviceAppSdpSettings sdpSettings = new BluetoothHidDeviceAppSdpSettings(
+                            "GyroCursorMouse", "Android Gyro Mouse", "Android",
+                            BluetoothHidDevice.SUBCLASS1_MOUSE, HID_DESCRIPTOR
+                    );
+
+                    hidDeviceProfile.registerApp(sdpSettings, null, null,
+                            Executors.newSingleThreadExecutor(), callback);
+                }
+            }
+
+            @Override
+            public void onServiceDisconnected(int profile) {
+                if (profile == BluetoothProfile.HID_DEVICE) {
+                    hidDeviceProfile = null;
+                    runOnUiThread(() -> statusTextView.setText("HID Profile State: Disconnected"));
+                }
+            }
+        }, BluetoothProfile.HID_DEVICE);
+    }
+
+    @SuppressLint("MissingPermission")
+    private void startDeviceDiscovery() {
+        if (bluetoothAdapter != null) {
+            if (bluetoothAdapter.isDiscovering()) {
+                bluetoothAdapter.cancelDiscovery();
+            }
+
+            discoveredAddresses.clear();
+            deviceListTextView.setText("");
+
+            bluetoothAdapter.startDiscovery();
         }
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (hid != null && target != null) {
-            hid.disconnect(target);
+        try {
+            unregisterReceiver(discoveryReceiver);
+        } catch (IllegalArgumentException ignored) {
         }
-        if (receiver != null) {
-            try {
-                unregisterReceiver(receiver);
-            } catch (IllegalArgumentException ignored) {
-            }
+        if (bluetoothAdapter != null && hidDeviceProfile != null) {
+            bluetoothAdapter.closeProfileProxy(BluetoothProfile.HID_DEVICE, hidDeviceProfile);
         }
-    }
-
-    private void getProxy() {
-        adapter.getProfileProxy(this, new BluetoothProfile.ServiceListener() {
-            @SuppressLint("MissingPermission")
-            @Override
-            public void onServiceConnected(int profile, BluetoothProfile proxy) {
-                if (profile == BluetoothProfile.HID_DEVICE) {
-                    BluetoothHidDevice.Callback callback = new BluetoothHidDevice.Callback() {
-                        @Override
-                        public void onConnectionStateChanged(BluetoothDevice device, final int state) {
-                            if (!device.equals(target)) return;
-
-                            runOnUiThread(() -> {
-                                if (state == BluetoothProfile.STATE_DISCONNECTED) {
-                                    Log.d(TAG, "Disconnected: " + device.getName());
-
-                                } else if (state == BluetoothProfile.STATE_CONNECTING) {
-                                    toastMessage("Connecting...");
-
-                                } else if (state == BluetoothProfile.STATE_CONNECTED) {
-                                    toastMessage("Connected");
-
-                                    Intent intent = new Intent(MainActivity.this, ForwardChooserActivity.class);
-                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-                                    startActivity(intent);
-
-                                } else if (state == BluetoothProfile.STATE_DISCONNECTING) {
-                                    Log.d(TAG, "Disconnecting: " + device.getName());
-                                }
-                            });
-                        }
-
-                        @Override
-                        public void onAppStatusChanged(BluetoothDevice pluggedDevice, boolean registered) {
-                            super.onAppStatusChanged(pluggedDevice, registered);
-                            Log.d(TAG, registered ? "HID Device registered successfully" : "HID Device registration failed");
-                            if (registered) {
-                                regState = 1;
-                            } else {
-                                regState = 0;
-                            }
-                        }
-
-                        @Override
-                        public void onGetReport(BluetoothDevice device, byte type, byte id, int bufferSize) {
-                            Log.d(TAG, "onGetReport: device=" + device + " type=" + type
-                                    + " id=" + id + " bufferSize=" + bufferSize);
-                        }
-
-                        @Override
-                        public void onSetReport(BluetoothDevice device, byte type, byte id, byte[] report) {
-                            Log.d(TAG, "onSetReport: device=" + device + " type=" + type
-                                    + " id=" + id + " report length=" + (report != null ? report.length : "null"));
-                        }
-                    };
-                    registerHidDevice(proxy, callback);
-                }
-            }
-
-
-            @Override
-            public void onServiceDisconnected(int profile) {
-            }
-        }, BluetoothProfile.HID_DEVICE);
-    }
-
-    private void registerHidDevice(BluetoothProfile proxy, BluetoothHidDevice.Callback callback) {
-        hid = (BluetoothHidDevice) proxy;
-
-        BluetoothHidDeviceAppSdpSettings sdp = new BluetoothHidDeviceAppSdpSettings(
-                "BlueHID",
-                "Android HID hackery",
-                "Android",
-                SUBCLASS1_KEYBOARD,
-                getDescriptor()
-        );
-        Executor executor = runnable -> new Thread(runnable).start();
-
-        hid.registerApp(sdp, null, null, executor, callback);
-
-        hid = (BluetoothHidDevice) proxy;
-    }
-
-    private void addSectionTitle(String title) {
-        View header = getLayoutInflater().inflate(
-                R.layout.device_selector_section_header,
-                pairedContainer,
-                false
-        );
-
-        TextView text = header.findViewById(R.id.sectionTitle);
-        text.setText(title);
-
-        pairedContainer.addView(header);
-    }
-
-
-    private void addDeviceRow(BluetoothDevice device, int index) {
-
-        View entry = getLayoutInflater().inflate(
-                R.layout.device_selector_entry_mixed,
-                pairedContainer,
-                false
-        );
-
-        TextView nameView = entry.findViewById(R.id.name);
-        ImageView iconView = entry.findViewById(R.id.imageView);
-
-        String name = device.getName() != null ? device.getName() : device.getAddress();
-        nameView.setText(name);
-
-        iconView.setImageResource(
-                index % 2 == 0 ? R.drawable.mixed_icon : R.drawable.computer_icon
-        );
-
-        entry.setOnClickListener(v -> {
-            target = device;
-
-            if (adapter != null && adapter.isDiscovering()) {
-                adapter.cancelDiscovery();
-                Log.d(TAG, "Discovery explicitly canceled because device was selected.");
-            }
-
-            Intent intent = new Intent(MainActivity.this, ConnectingActivity.class);
-            intent.putExtra("device_name", device.getName());
-            intent.putExtra("device_address", device.getAddress());
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(intent);
-
-            connect();
-        });
-
-        pairedContainer.addView(entry);
-    }
-
-
-    private void rebuildDeviceUI() {
-        pairedContainer.removeAllViews();
-
-        paired.clear();
-        paired.addAll(adapter.getBondedDevices());
-
-        addSectionTitle("Paired");
-
-        int index = 0;
-        for (BluetoothDevice device : paired) {
-            addDeviceRow(device, index++);
-        }
-
-        addSectionTitle("Other Devices");
-
-        for (BluetoothDevice device : discovered) {
-            if (isPaired(device)) continue;
-            addDeviceRow(device, index++);
-        }
-    }
-
-    private boolean isPaired(BluetoothDevice device) {
-        for (BluetoothDevice d : paired) {
-            if (d.getAddress().equals(device.getAddress())) return true;
-        }
-        return false;
-    }
-
-
-    private void findAvailableDevices() {
-
-        receiver = new BroadcastReceiver() {
-            @SuppressLint("MissingPermission")
-            public void onReceive(Context context, Intent intent) {
-                Log.d(TAG, "ACTION_RECEIVED: " + intent.getAction());
-
-                if (!BluetoothDevice.ACTION_FOUND.equals(intent.getAction())) return;
-
-                BluetoothDevice device =
-                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-
-                if (device == null || device.getAddress() == null) return;
-
-                String addr = device.getAddress();
-
-                if (!discoveredMap.containsKey(addr)) {
-                    discoveredMap.put(addr, device);
-                    discovered.add(device);
-
-                    runOnUiThread(() -> rebuildDeviceUI());
-
-                    Log.d(TAG, "RAW DEVICE: name=" + device.getName() + " addr=" + device.getAddress());
-                }
-
-                Log.d(TAG, "DEVICE_EVENT: " + device);
-            }
-        };
-
-        IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
-        Log.d(TAG, "IntentFilter set for ACTION_FOUND");
-
-        registerReceiver(receiver, filter);
-        Log.d(TAG, "Receiver registered");
-
-
-        if (adapter.isDiscovering()) {
-            adapter.cancelDiscovery();
-        }
-
-        adapter.startDiscovery();
-    }
-
-    private void connect() {
-        Handler handler = new Handler();
-        Runnable checkCondition = new Runnable() {
-            @Override
-            public void run() {
-                if (regState == 1) {
-                    hid.connect(target);
-                } else {
-                    handler.post(this);
-                }
-            }
-        };
-
-        handler.post(checkCondition);
-    }
-
-    private void toastMessage(String message) {
-        Log.d(TAG, message);
-        (this).runOnUiThread(() ->
-                Toast.makeText(this, message, Toast.LENGTH_SHORT).show());
-    }
-
-    private byte[] getDescriptor() {
-        return new byte[]{
-                (byte) 0x05, (byte) 0x01, // Usage Page (Generic Desktop Ctrls)
-                (byte) 0x09, (byte) 0x02, // Usage (Mouse)
-                (byte) 0xA1, (byte) 0x01, // Collection (Application)
-                (byte) 0x09, (byte) 0x01, //   Usage (Pointer)
-                (byte) 0xA1, (byte) 0x00, //   Collection (Physical)
-                (byte) 0x05, (byte) 0x09, //     Usage Page (Button)
-                (byte) 0x19, (byte) 0x01, //     Usage Minimum (1)
-                (byte) 0x29, (byte) 0x03, //     Usage Maximum (3)
-                (byte) 0x15, (byte) 0x00, //     Logical Minimum (0)
-                (byte) 0x25, (byte) 0x01, //     Logical Maximum (1)
-                (byte) 0x95, (byte) 0x03, //     Report Count (3)
-                (byte) 0x75, (byte) 0x01, //     Report Size (1)
-                (byte) 0x81, (byte) 0x02, //     Input (Data, Var, Abs)
-                (byte) 0x95, (byte) 0x01, //     Report Count (1)
-                (byte) 0x75, (byte) 0x05, //     Report Size (5)
-                (byte) 0x81, (byte) 0x03, //     Input (Cnst, Var, Abs)
-                (byte) 0x05, (byte) 0x01, //
-                (byte) 0x09, (byte) 0x30,
-                (byte) 0x09, (byte) 0x31,
-                (byte) 0x15, (byte) 0x81,
-                (byte) 0x25, (byte) 0x7F,
-                (byte) 0x75, (byte) 0x08,
-                (byte) 0x95, (byte) 0x02, // also 0x03
-                (byte) 0x81, (byte) 0x06,
-
-                (byte) 0xC0,
-                (byte) 0xC0
-        };
     }
 }

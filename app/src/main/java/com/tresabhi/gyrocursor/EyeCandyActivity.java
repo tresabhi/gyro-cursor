@@ -93,7 +93,7 @@ public class EyeCandyActivity extends Activity implements SensorEventListener {
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private void processAndSendHid(float gx, float gy, float gz) {
-        if (!hasBluetoothPermission || MainActivity.hid == null || MainActivity.target == null) {
+        if (!hasBluetoothPermission || _MainActivity.hid == null || _MainActivity.target == null) {
             return;
         }
 
@@ -117,8 +117,8 @@ public class EyeCandyActivity extends Activity implements SensorEventListener {
             return;
         }
 
-        MainActivity.hid.sendReport(
-                MainActivity.target,
+        _MainActivity.hid.sendReport(
+                _MainActivity.target,
                 (byte) 0x01,
                 new byte[]{0x00, (byte) du, (byte) dv}
         );
