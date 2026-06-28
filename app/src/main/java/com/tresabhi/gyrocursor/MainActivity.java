@@ -21,6 +21,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
+import android.view.MotionEvent;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -28,6 +29,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import androidx.annotation.RequiresPermission;
+import androidx.appcompat.widget.AppCompatButton;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -60,9 +62,8 @@ public class MainActivity extends Activity implements SensorEventListener {
             (byte) 0x15, (byte) 0x81,
             (byte) 0x25, (byte) 0x7F,
             (byte) 0x75, (byte) 0x08,
-            (byte) 0x95, (byte) 0x02, // also 0x03
+            (byte) 0x95, (byte) 0x02,
             (byte) 0x81, (byte) 0x06,
-
             (byte) 0xC0,
             (byte) 0xC0
     };
@@ -79,6 +80,8 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     private float carryU = 0f;
     private float carryV = 0f;
+
+    private volatile byte currentButtonState = 0x00;
 
     private TextView statusTextView;
     private final BluetoothHidDevice.Callback callback = new BluetoothHidDevice.Callback() {
@@ -153,6 +156,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         startDeviceDiscovery();
     }
 
+    @SuppressLint("ClickableViewAccessibility")
     private void createSimpleUI() {
         LinearLayout rootLayout = new LinearLayout(this);
         rootLayout.setOrientation(LinearLayout.VERTICAL);
@@ -174,7 +178,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         ScrollView scrollView = new ScrollView(this);
         LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.0f);
-        scrollParams.setMargins(0, 24, 0, 0);
+        scrollParams.setMargins(0, 24, 0, 24);
         scrollView.setLayoutParams(scrollParams);
         scrollView.setBackgroundColor(Color.WHITE);
 
@@ -185,6 +189,54 @@ public class MainActivity extends Activity implements SensorEventListener {
         scrollView.addView(deviceContainerLayout);
         rootLayout.addView(scrollView);
 
+        LinearLayout clickContainer = new LinearLayout(this);
+        clickContainer.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams containerParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clickContainer.setLayoutParams(containerParams);
+
+        LinearLayout.LayoutParams leftButtonParams = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f);
+        leftButtonParams.setMargins(0, 0, 8, 0);
+
+        Button leftClickButton = new AppCompatButton(this) {
+            @Override
+            protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+                int width = getMeasuredWidth();
+                setMeasuredDimension(width, width);
+            }
+        };
+        leftClickButton.setText("Left Click");
+        leftClickButton.setLayoutParams(leftButtonParams);
+        leftClickButton.setOnTouchListener((v, event) -> {
+            handleButtonTouch(event, (byte) 0x01);
+            return true;
+        });
+
+        LinearLayout.LayoutParams rightButtonParams = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f);
+        rightButtonParams.setMargins(8, 0, 0, 0);
+
+        Button rightClickButton = new AppCompatButton(this) {
+            @Override
+            protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+                int width = getMeasuredWidth();
+                setMeasuredDimension(width, width);
+            }
+        };
+        rightClickButton.setText("Right Click");
+        rightClickButton.setLayoutParams(rightButtonParams);
+        rightClickButton.setOnTouchListener((v, event) -> {
+            handleButtonTouch(event, (byte) 0x02);
+            return true;
+        });
+
+        clickContainer.addView(leftClickButton);
+        clickContainer.addView(rightClickButton);
+        rootLayout.addView(clickContainer);
+
         setContentView(rootLayout);
     }
 
@@ -192,7 +244,7 @@ public class MainActivity extends Activity implements SensorEventListener {
     private void addDeviceButton(BluetoothDevice device, String displayName) {
         Button deviceButton = new Button(this);
         deviceButton.setText(displayName);
-        deviceButton.setTransformationMethod(null); // Keeps casing intact
+        deviceButton.setTransformationMethod(null);
 
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -283,12 +335,20 @@ public class MainActivity extends Activity implements SensorEventListener {
     public void onAccuracyChanged(Sensor sensor, int accuracy) {
     }
 
+    @SuppressLint("MissingPermission")
+    private void handleButtonTouch(MotionEvent event, byte buttonMask) {
+        int action = event.getAction();
+        if (action == MotionEvent.ACTION_DOWN) {
+            currentButtonState |= buttonMask;
+            hidHandler.post(() -> sendHidReport((byte) 0, (byte) 0));
+        } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            currentButtonState &= ~buttonMask;
+            hidHandler.post(() -> sendHidReport((byte) 0, (byte) 0));
+        }
+    }
+
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private void processAndSendHid(float gx, float gy, float gz) {
-        if (hidDeviceProfile == null || targetDevice == null) {
-            return;
-        }
-
         float sensitivity = 15f;
         float rawY = gx * sensitivity;
         float rawZ = gz * sensitivity;
@@ -305,14 +365,23 @@ public class MainActivity extends Activity implements SensorEventListener {
         du *= -1;
         dv *= -1;
 
-        if (du == 0 && dv == 0) {
+        if (du == 0 && dv == 0 && currentButtonState == 0) {
+            return;
+        }
+
+        sendHidReport((byte) du, (byte) dv);
+    }
+
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+    private void sendHidReport(byte du, byte dv) {
+        if (hidDeviceProfile == null || targetDevice == null) {
             return;
         }
 
         byte[] reportBuffer = new byte[]{
-                (byte) 0x00,
-                (byte) du,
-                (byte) dv
+                currentButtonState,
+                du,
+                dv
         };
 
         hidDeviceProfile.sendReport(targetDevice, (byte) 0x01, reportBuffer);
