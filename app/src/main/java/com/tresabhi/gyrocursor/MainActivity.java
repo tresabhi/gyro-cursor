@@ -115,13 +115,19 @@ public class MainActivity extends Activity implements SensorEventListener {
             String action = intent.getAction();
             if (BluetoothDevice.ACTION_FOUND.equals(action)) {
                 BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+
                 if (device != null) {
+                    String name = device.getName();
+
+                    // Don't show devices with no name
+                    if (name == null || name.trim().isEmpty()) {
+                        return;
+                    }
+
                     String address = device.getAddress();
 
                     if (discoveredAddresses.add(address)) {
-                        String name = device.getName();
-                        String displayName = (name != null ? name : "Unknown Device") + "\n[" + address + "]";
-
+                        String displayName = name + "\n[" + address + "]";
                         runOnUiThread(() -> addDeviceButton(device, displayName));
                     }
                 }
