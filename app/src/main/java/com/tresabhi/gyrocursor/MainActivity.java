@@ -207,6 +207,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         }
     };
 
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -234,6 +235,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
         registerReceiver(discoveryReceiver, filter);
 
+        loadPairedDevices();
         startDeviceDiscovery();
     }
 
@@ -378,13 +380,12 @@ public class MainActivity extends Activity implements SensorEventListener {
     @SuppressLint("MissingPermission")
     private void startDeviceDiscovery() {
         if (bluetoothAdapter != null) {
+
             if (bluetoothAdapter.isDiscovering()) {
                 bluetoothAdapter.cancelDiscovery();
             }
 
             stopGyroscope();
-            discoveredAddresses.clear();
-            deviceContainerLayout.removeAllViews();
 
             bluetoothAdapter.startDiscovery();
         }
@@ -524,6 +525,31 @@ public class MainActivity extends Activity implements SensorEventListener {
         }
         if (bluetoothAdapter != null && hidDeviceProfile != null) {
             bluetoothAdapter.closeProfileProxy(BluetoothProfile.HID_DEVICE, hidDeviceProfile);
+        }
+    }
+
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+    private void loadPairedDevices() {
+        if (bluetoothAdapter == null) {
+            return;
+        }
+
+        Set<BluetoothDevice> pairedDevices = bluetoothAdapter.getBondedDevices();
+
+        for (BluetoothDevice device : pairedDevices) {
+            String name = device.getName();
+
+            if (name == null || name.trim().isEmpty()) {
+                name = "Unknown device";
+            }
+
+            String address = device.getAddress();
+
+            if (discoveredAddresses.add(address)) {
+                String displayName = name + "\n[" + address + "]";
+
+                addDeviceButton(device, displayName);
+            }
         }
     }
 }
