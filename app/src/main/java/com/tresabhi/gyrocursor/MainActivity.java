@@ -40,32 +40,93 @@ public class MainActivity extends Activity implements SensorEventListener {
     private static final String TAG = "GyroCursor";
 
     private static final byte[] HID_DESCRIPTOR = new byte[]{
-            (byte) 0x05, (byte) 0x01, // Usage Page (Generic Desktop Ctrls)
-            (byte) 0x09, (byte) 0x02, // Usage (Mouse)
-            (byte) 0xA1, (byte) 0x01, // Collection (Application)
-            (byte) 0x09, (byte) 0x01, //   Usage (Pointer)
-            (byte) 0xA1, (byte) 0x00, //   Collection (Physical)
-            (byte) 0x05, (byte) 0x09, //     Usage Page (Button)
-            (byte) 0x19, (byte) 0x01, //     Usage Minimum (1)
-            (byte) 0x29, (byte) 0x03, //     Usage Maximum (3)
-            (byte) 0x15, (byte) 0x00, //     Logical Minimum (0)
-            (byte) 0x25, (byte) 0x01, //     Logical Maximum (1)
-            (byte) 0x95, (byte) 0x03, //     Report Count (3)
-            (byte) 0x75, (byte) 0x01, //     Report Size (1)
-            (byte) 0x81, (byte) 0x02, //     Input (Data, Var, Abs)
-            (byte) 0x95, (byte) 0x01, //     Report Count (1)
-            (byte) 0x75, (byte) 0x05, //     Report Size (5)
-            (byte) 0x81, (byte) 0x03, //     Input (Cnst, Var, Abs)
-            (byte) 0x05, (byte) 0x01, //
-            (byte) 0x09, (byte) 0x30,
-            (byte) 0x09, (byte) 0x31,
-            (byte) 0x15, (byte) 0x81,
-            (byte) 0x25, (byte) 0x7F,
+
+            // Report 1 (mouse)
+
+            (byte) 0x05, (byte) 0x01,       // Usage Page (Generic Desktop)
+            (byte) 0x09, (byte) 0x02,       // Usage (Mouse)
+            (byte) 0xA1, (byte) 0x01,       // Collection (Application)
+
+            (byte) 0x85, (byte) 0x01,       // Report ID (1)
+
+            (byte) 0x09, (byte) 0x01,       // Usage (Pointer)
+            (byte) 0xA1, (byte) 0x00,       // Collection (Physical)
+
+            (byte) 0x05, (byte) 0x09,       // Usage Page (Button)
+            (byte) 0x19, (byte) 0x01,       // Usage Minimum (Button 1)
+            (byte) 0x29, (byte) 0x03,       // Usage Maximum (Button 3)
+
+            (byte) 0x15, (byte) 0x00,       // Logical Minimum (0)
+            (byte) 0x25, (byte) 0x01,       // Logical Maximum (1)
+
+            (byte) 0x95, (byte) 0x03,       // Report Count (3)
+            (byte) 0x75, (byte) 0x01,       // Report Size (1)
+
+            (byte) 0x81, (byte) 0x02,       // Input (Data, Variable, Absolute)
+
+            (byte) 0x95, (byte) 0x01,       // Report Count (1)
+            (byte) 0x75, (byte) 0x05,       // Report Size (5)
+
+            (byte) 0x81, (byte) 0x03,       // Input (Constant)
+
+            (byte) 0x05, (byte) 0x01,       // Usage Page (Generic Desktop)
+
+            (byte) 0x09, (byte) 0x30,       // Usage (X)
+            (byte) 0x09, (byte) 0x31,       // Usage (Y)
+
+            (byte) 0x15, (byte) 0x81,       // Logical Minimum (-127)
+            (byte) 0x25, (byte) 0x7F,       // Logical Maximum (127)
+
+            (byte) 0x75, (byte) 0x08,       // Report Size (8)
+            (byte) 0x95, (byte) 0x02,       // Report Count (2)
+
+            (byte) 0x81, (byte) 0x06,       // Input (Data, Variable, Relative)
+
+            (byte) 0xC0,                    // End Physical Collection
+            (byte) 0xC0,                    // End Mouse Collection
+
+
+            // Report 2 (keyboard, unused, reserved for legacy keyboard app)
+
+            (byte) 0x05, (byte) 0x01,       // Usage Page (Generic Desktop)
+            (byte) 0x09, (byte) 0x06,       // Usage (Keyboard)
+            (byte) 0xA1, (byte) 0x01,       // Collection (Application)
+
+            (byte) 0x85, (byte) 0x02,       // Report ID (2)
+
+            (byte) 0x05, (byte) 0x07,       // Usage Page (Keyboard)
+
+            // Modifier keys
+            (byte) 0x19, (byte) 0xE0,
+            (byte) 0x29, (byte) 0xE7,
+
+            (byte) 0x15, (byte) 0x00,
+            (byte) 0x25, (byte) 0x01,
+
+            (byte) 0x75, (byte) 0x01,
+            (byte) 0x95, (byte) 0x08,
+
+            (byte) 0x81, (byte) 0x02,
+
+            // Reserved byte
             (byte) 0x75, (byte) 0x08,
-            (byte) 0x95, (byte) 0x02,
-            (byte) 0x81, (byte) 0x06,
-            (byte) 0xC0,
-            (byte) 0xC0
+            (byte) 0x95, (byte) 0x01,
+
+            (byte) 0x81, (byte) 0x01,
+
+            // Six keyboard keys
+            (byte) 0x19, (byte) 0x00,
+            (byte) 0x29, (byte) 0x65,
+
+            (byte) 0x15, (byte) 0x00,
+            (byte) 0x25, (byte) 0x65,
+
+            (byte) 0x75, (byte) 0x08,
+            (byte) 0x95, (byte) 0x06,
+
+            (byte) 0x81, (byte) 0x00,
+
+            (byte) 0xC0                    // End Keyboard Collection
     };
 
     private final Set<String> discoveredAddresses = new HashSet<>();
@@ -387,13 +448,10 @@ public class MainActivity extends Activity implements SensorEventListener {
             return;
         }
 
-        byte[] reportBuffer = new byte[]{
-                currentButtonState,
-                du,
-                dv
-        };
+        byte[] mouseReport = new byte[]{ currentButtonState, du, dv };
 
-        hidDeviceProfile.sendReport(targetDevice, (byte) 0x01, reportBuffer);
+        hidDeviceProfile.sendReport(targetDevice, (byte) 0x01, mouseReport);
+        // hidDeviceProfile.sendReport(targetDevice, (byte) 0x02, keyboardReport);
     }
 
     @Override
