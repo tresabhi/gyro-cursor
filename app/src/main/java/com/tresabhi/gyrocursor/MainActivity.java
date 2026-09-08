@@ -139,8 +139,19 @@ public class MainActivity extends Activity implements SensorEventListener {
     private HandlerThread hidThread;
     private Handler hidHandler;
 
-    private float carryU = 0f;
-    private float carryV = 0f;
+    private volatile float latestGx = 0f;
+    private volatile float latestGz = 0f;
+
+    private long lastMouseUpdateNs = 0L;
+
+    private float smoothX = 0f;
+    private float smoothY = 0f;
+
+    // I have a 165Hz refresh rate screen, but you may want to use 1000ms/60 instead
+    private static final long MOUSE_INTERVAL_MS = (long) 6.061;
+    private static final float sensitivity = 900f;
+
+    private boolean mouseLoopRunning = false;
 
     private volatile byte currentButtonState = 0x00;
 
@@ -381,23 +392,89 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     private void startGyroscope() {
         if (gyroscope != null) {
-            sensorManager.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_GAME);
+            sensorManager.registerListener(
+                    this,
+                    gyroscope,
+                    SensorManager.SENSOR_DELAY_GAME
+            );
+        }
+
+        if (!mouseLoopRunning) {
+            mouseLoopRunning = true;
+            lastMouseUpdateNs = 0L;
+
+            hidHandler.post(mouseRunnable);
         }
     }
 
     private void stopGyroscope() {
         sensorManager.unregisterListener(this);
+
+        mouseLoopRunning = false;
+        hidHandler.removeCallbacks(mouseRunnable);
+
+        lastMouseUpdateNs = 0L;
+        smoothX = 0f;
+        smoothY = 0f;
     }
 
-    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     @Override
     public void onSensorChanged(SensorEvent event) {
         if (event.sensor.getType() == Sensor.TYPE_GYROSCOPE) {
-            final float gyroX = event.values[0];
-            final float gyroY = event.values[1];
-            final float gyroZ = event.values[2];
 
-            hidHandler.post(() -> processAndSendHid(gyroX, gyroY, gyroZ));
+            latestGx = event.values[0];
+            latestGz = event.values[2];
+        }
+    }
+
+    private final Runnable mouseRunnable = new Runnable() {
+        @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+        @Override
+        public void run() {
+
+            if (!mouseLoopRunning) {
+                return;
+            }
+
+            long now = System.nanoTime();
+
+            if (lastMouseUpdateNs == 0L) {
+                lastMouseUpdateNs = now;
+            }
+
+            float deltaTime =
+                    (now - lastMouseUpdateNs) / 1_000_000_000f;
+
+            lastMouseUpdateNs = now;
+
+            processSmoothMouseMovement(deltaTime);
+
+            hidHandler.postDelayed(this, MOUSE_INTERVAL_MS);
+        }
+    };
+
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+    private void processSmoothMouseMovement(float deltaTime) {
+        float velocityX = latestGz * sensitivity;
+        float velocityY = latestGx * sensitivity;
+
+        smoothX += velocityX * deltaTime;
+        smoothY += velocityY * deltaTime;
+
+        int dx = (int) smoothX;
+        int dy = (int) smoothY;
+
+        smoothX -= dx;
+        smoothY -= dy;
+
+        dx *= -1;
+        dy *= -1;
+
+        dx = Math.max(-127, Math.min(127, dx));
+        dy = Math.max(-127, Math.min(127, dy));
+
+        if (dx != 0 || dy != 0 || currentButtonState != 0) {
+            sendHidReport((byte) dx, (byte) dy);
         }
     }
 
@@ -415,31 +492,6 @@ public class MainActivity extends Activity implements SensorEventListener {
             currentButtonState &= ~buttonMask;
             hidHandler.post(() -> sendHidReport((byte) 0, (byte) 0));
         }
-    }
-
-    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-    private void processAndSendHid(float gx, float gy, float gz) {
-        float sensitivity = 15f;
-        float rawY = gx * sensitivity;
-        float rawZ = gz * sensitivity;
-
-        carryU += rawZ;
-        carryV += rawY;
-
-        int du = (int) carryU;
-        int dv = (int) carryV;
-
-        carryU -= du;
-        carryV -= dv;
-
-        du *= -1;
-        dv *= -1;
-
-        if (du == 0 && dv == 0 && currentButtonState == 0) {
-            return;
-        }
-
-        sendHidReport((byte) du, (byte) dv);
     }
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
