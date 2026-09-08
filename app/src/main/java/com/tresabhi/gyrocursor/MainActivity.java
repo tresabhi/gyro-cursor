@@ -135,12 +135,13 @@ public class MainActivity extends Activity implements SensorEventListener {
     private BluetoothDevice targetDevice;
 
     private SensorManager sensorManager;
-    private Sensor gyroscope;
+    private Sensor gyroscopeSensor;
+    private Sensor gravitySensor;
     private HandlerThread hidThread;
     private Handler hidHandler;
 
-    private volatile float latestGx = 0f;
-    private volatile float latestGz = 0f;
+    private volatile float[] latestGyroscope = new float[3];
+    private volatile float[] latestGravity = new float[3];
 
     private long lastMouseUpdateNs = 0L;
 
@@ -149,7 +150,7 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     // I have a 165Hz refresh rate screen, but you may want to use 1000ms/60 instead
     private static final long MOUSE_INTERVAL_MS = (long) 6.061;
-    private static final float sensitivity = 900f;
+    private static float sensitivity = 900f;
 
     private boolean mouseLoopRunning = false;
 
@@ -169,11 +170,11 @@ public class MainActivity extends Activity implements SensorEventListener {
             if (state == BluetoothProfile.STATE_CONNECTED) {
                 targetDevice = device;
                 runOnUiThread(() -> statusTextView.setText("Connected to: " + device.getAddress()));
-                startGyroscope();
+                startSensors();
             } else if (state == BluetoothProfile.STATE_DISCONNECTED) {
                 if (targetDevice != null && targetDevice.equals(device)) {
                     targetDevice = null;
-                    stopGyroscope();
+                    stopSensors();
                     runOnUiThread(() -> statusTextView.setText("Disconnected. Standby."));
                 }
             }
@@ -218,13 +219,16 @@ public class MainActivity extends Activity implements SensorEventListener {
         createSimpleUI();
 
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-        gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
+
+        gyroscopeSensor = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
+        gravitySensor = sensorManager.getDefaultSensor(Sensor.TYPE_GRAVITY);
 
         hidThread = new HandlerThread("hid-report-thread");
         hidThread.start();
         hidHandler = new Handler(hidThread.getLooper());
 
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+
         if (bluetoothAdapter == null) {
             statusTextView.setText("Error: Bluetooth not supported.");
             return;
@@ -370,7 +374,7 @@ public class MainActivity extends Activity implements SensorEventListener {
             public void onServiceDisconnected(int profile) {
                 if (profile == BluetoothProfile.HID_DEVICE) {
                     hidDeviceProfile = null;
-                    stopGyroscope();
+                    stopSensors();
                     runOnUiThread(() -> statusTextView.setText("HID Profile State: Disconnected"));
                 }
             }
@@ -385,19 +389,16 @@ public class MainActivity extends Activity implements SensorEventListener {
                 bluetoothAdapter.cancelDiscovery();
             }
 
-            stopGyroscope();
+            stopSensors();
 
             bluetoothAdapter.startDiscovery();
         }
     }
 
-    private void startGyroscope() {
-        if (gyroscope != null) {
-            sensorManager.registerListener(
-                    this,
-                    gyroscope,
-                    SensorManager.SENSOR_DELAY_GAME
-            );
+    private void startSensors() {
+        if (gyroscopeSensor != null) {
+            sensorManager.registerListener(this, gyroscopeSensor, SensorManager.SENSOR_DELAY_GAME);
+            sensorManager.registerListener(this, gravitySensor, SensorManager.SENSOR_DELAY_GAME);
         }
 
         if (!mouseLoopRunning) {
@@ -408,7 +409,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         }
     }
 
-    private void stopGyroscope() {
+    private void stopSensors() {
         sensorManager.unregisterListener(this);
 
         mouseLoopRunning = false;
@@ -421,10 +422,14 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @Override
     public void onSensorChanged(SensorEvent event) {
-        if (event.sensor.getType() == Sensor.TYPE_GYROSCOPE) {
+        switch (event.sensor.getType()) {
+            case Sensor.TYPE_GYROSCOPE:
+                latestGyroscope = event.values;
+                break;
 
-            latestGx = event.values[0];
-            latestGz = event.values[2];
+            case Sensor.TYPE_GRAVITY:
+                latestGravity = event.values;
+                break;
         }
     }
 
@@ -456,8 +461,20 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private void processSmoothMouseMovement(float deltaTime) {
-        float velocityX = latestGz * sensitivity;
-        float velocityY = latestGx * sensitivity;
+//        float angle = (float) Math.toDegrees(Math.atan2(latestGravity[2], latestGravity[0]));
+//
+//        boolean isLeftClicked = angle < 0;
+//
+//        if (isLeftClicked) {
+//            currentButtonState |= 0x01;
+//        } else {
+//            currentButtonState &= ~0x01;
+//        }
+
+//        sensitivity = 0;
+
+        float velocityX = latestGyroscope[2] * sensitivity;
+        float velocityY = latestGyroscope[0] * sensitivity;
 
         smoothX += velocityX * deltaTime;
         smoothY += velocityY * deltaTime;
@@ -515,7 +532,7 @@ public class MainActivity extends Activity implements SensorEventListener {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        stopGyroscope();
+        stopSensors();
         try {
             unregisterReceiver(discoveryReceiver);
         } catch (IllegalArgumentException ignored) {
