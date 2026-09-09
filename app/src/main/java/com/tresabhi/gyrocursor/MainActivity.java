@@ -154,7 +154,8 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     private boolean mouseLoopRunning = false;
 
-    private volatile byte currentButtonState = 0x00;
+    private volatile boolean isLeftDown = false;
+    private volatile boolean isRightDown = false;
 
     private TextView statusTextView;
     private final BluetoothHidDevice.Callback callback = new BluetoothHidDevice.Callback() {
@@ -297,7 +298,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         leftClickButton.setText("Left Click");
         leftClickButton.setLayoutParams(leftButtonParams);
         leftClickButton.setOnTouchListener((v, event) -> {
-            handleButtonTouch(event, (byte) 0x01);
+            handleButtonTouch(event, true);
             return true;
         });
 
@@ -316,7 +317,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         rightClickButton.setText("Right Click");
         rightClickButton.setLayoutParams(rightButtonParams);
         rightClickButton.setOnTouchListener((v, event) -> {
-            handleButtonTouch(event, (byte) 0x02);
+            handleButtonTouch(event, false);
             return true;
         });
 
@@ -461,17 +462,9 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private void processSmoothMouseMovement(float deltaTime) {
-//        float angle = (float) Math.toDegrees(Math.atan2(latestGravity[2], latestGravity[0]));
-//
-//        boolean isLeftClicked = angle < 0;
-//
-//        if (isLeftClicked) {
-//            currentButtonState |= 0x01;
-//        } else {
-//            currentButtonState &= ~0x01;
-//        }
+        float angle = (float) Math.toDegrees(Math.atan2(latestGravity[2], latestGravity[0]));
 
-//        sensitivity = 0;
+        isLeftDown = angle > 135;
 
         float velocityX = latestGyroscope[2] * sensitivity;
         float velocityY = latestGyroscope[0] * sensitivity;
@@ -491,9 +484,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         dx = Math.max(-127, Math.min(127, dx));
         dy = Math.max(-127, Math.min(127, dy));
 
-        if (dx != 0 || dy != 0 || currentButtonState != 0) {
-            sendHidReport((byte) dx, (byte) dy);
-        }
+        sendHidReport((byte) dx, (byte) dy);
     }
 
     @Override
@@ -501,13 +492,24 @@ public class MainActivity extends Activity implements SensorEventListener {
     }
 
     @SuppressLint("MissingPermission")
-    private void handleButtonTouch(MotionEvent event, byte buttonMask) {
+    private void handleButtonTouch(MotionEvent event, boolean isSideLeft) {
         int action = event.getAction();
+
         if (action == MotionEvent.ACTION_DOWN) {
-            currentButtonState |= buttonMask;
+            if (isSideLeft) {
+                isLeftDown = true;
+            } else {
+                isRightDown = true;
+            }
+
             hidHandler.post(() -> sendHidReport((byte) 0, (byte) 0));
         } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-            currentButtonState &= ~buttonMask;
+            if (isSideLeft) {
+                isLeftDown = false;
+            } else {
+                isRightDown = false;
+            }
+
             hidHandler.post(() -> sendHidReport((byte) 0, (byte) 0));
         }
     }
@@ -518,7 +520,17 @@ public class MainActivity extends Activity implements SensorEventListener {
             return;
         }
 
-        byte[] mouseReport = new byte[]{ currentButtonState, du, dv };
+        byte buttonState = 0;
+
+        if (isLeftDown) {
+            buttonState |= 0b00000001;
+        }
+
+        if (isRightDown) {
+            buttonState |= 0b00000010;
+        }
+
+        byte[] mouseReport = new byte[]{ buttonState, du, dv };
 
         hidDeviceProfile.sendReport(targetDevice, (byte) 0x01, mouseReport);
         // hidDeviceProfile.sendReport(targetDevice, (byte) 0x02, keyboardReport);
