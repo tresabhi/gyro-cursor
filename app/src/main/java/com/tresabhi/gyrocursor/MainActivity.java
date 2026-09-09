@@ -140,22 +140,31 @@ public class MainActivity extends Activity implements SensorEventListener {
     private HandlerThread hidThread;
     private Handler hidHandler;
 
-    private volatile float[] latestGyroscope = new float[3];
-    private volatile float[] latestGravity = new float[3];
-
     private long lastMouseUpdateNs = 0L;
 
     private float smoothX = 0f;
     private float smoothY = 0f;
 
-    // I have a 165Hz refresh rate screen, but you may want to use 1000ms/60 instead
-    private static final long MOUSE_INTERVAL_MS = (long) 6.061;
+    // 60Hz is a common screen refresh rate
+    private static final long MOUSE_INTERVAL_MS = (long) (1000f / 60f);
     private static float sensitivity = 900f;
 
     private boolean mouseLoopRunning = false;
 
     private volatile boolean isLeftDown = false;
     private volatile boolean isRightDown = false;
+
+    // the magnitude matters for this one
+    private volatile Vector3 gyroscope_vec = new Vector3();
+
+    // phone-fixed front vector; needs to be customizable later
+    private volatile Vector3 phone_front_vec = new Vector3(0, 1, 0);
+    // ground-fixed front vector
+    private volatile Vector3 ground_front_vec = new Vector3(0, 1, 0);
+    // ground fixed, phone oriented right hand vector
+    private volatile Vector3 ground_right_vec = new Vector3(1, 0, 0);
+    // ground fixed gravity vector
+    private volatile Vector3 ground_gravity_vec = new Vector3(0, -1, 0);
 
     private TextView statusTextView;
     private final BluetoothHidDevice.Callback callback = new BluetoothHidDevice.Callback() {
@@ -181,6 +190,7 @@ public class MainActivity extends Activity implements SensorEventListener {
             }
         }
     };
+
     private LinearLayout deviceContainerLayout;
     private final BroadcastReceiver discoveryReceiver = new BroadcastReceiver() {
         @SuppressLint("MissingPermission")
@@ -425,13 +435,23 @@ public class MainActivity extends Activity implements SensorEventListener {
     public void onSensorChanged(SensorEvent event) {
         switch (event.sensor.getType()) {
             case Sensor.TYPE_GYROSCOPE:
-                latestGyroscope = event.values;
+                gyroscope_vec.set(event.values);
                 break;
 
             case Sensor.TYPE_GRAVITY:
-                latestGravity = event.values;
+                // andriod gravity sensor points opposite to the direction of
+                // gravity; the abstraction of "down" is better so we amend
+                // this
+
+                ground_gravity_vec
+                        .set(event.values)
+                        .multiply(-1)
+                        .normalize();
                 break;
         }
+
+        ground_right_vec.copy(ground_gravity_vec.cross(phone_front_vec)).normalize();
+        ground_front_vec.copy(ground_right_vec.cross(ground_gravity_vec)).normalize();
     }
 
     private final Runnable mouseRunnable = new Runnable() {
@@ -449,8 +469,7 @@ public class MainActivity extends Activity implements SensorEventListener {
                 lastMouseUpdateNs = now;
             }
 
-            float deltaTime =
-                    (now - lastMouseUpdateNs) / 1_000_000_000f;
+            float deltaTime = (now - lastMouseUpdateNs) / 1_000_000_000f;
 
             lastMouseUpdateNs = now;
 
@@ -466,8 +485,8 @@ public class MainActivity extends Activity implements SensorEventListener {
 
         isLeftDown = angle > 135;
 
-        float velocityX = latestGyroscope[2] * sensitivity;
-        float velocityY = latestGyroscope[0] * sensitivity;
+        double velocityX = gyroscope_vec.z * sensitivity;
+        double velocityY = gyroscope_vec.x * sensitivity;
 
         smoothX += velocityX * deltaTime;
         smoothY += velocityY * deltaTime;
