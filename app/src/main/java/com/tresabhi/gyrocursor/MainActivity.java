@@ -1,5 +1,7 @@
 package com.tresabhi.gyrocursor;
 
+import static android.bluetooth.BluetoothHidDevice.SUBCLASS1_KEYBOARD;
+
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
@@ -91,8 +93,7 @@ public class MainActivity extends Activity implements SensorEventListener {
             (byte) 0x05, (byte) 0x01,       // Usage Page (Generic Desktop)
             (byte) 0x09, (byte) 0x06,       // Usage (Keyboard)
             (byte) 0xA1, (byte) 0x01,       // Collection (Application)
-
-            (byte) 0x85, (byte) 0x02,       // Report ID (2)
+            (byte) 0x85, SUBCLASS1_KEYBOARD,// Report ID (SUBCLASS1_KEYBOARD)
 
             (byte) 0x05, (byte) 0x07,       // Usage Page (Keyboard)
 
@@ -142,8 +143,7 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     private long lastMouseUpdateNs = 0L;
 
-    private float smoothX = 0f;
-    private float smoothY = 0f;
+    private Vector3 smooth = new Vector3();
 
     // 60Hz is a common screen refresh rate
     private static final long MOUSE_INTERVAL_MS = (long) (1000f / 60f);
@@ -427,8 +427,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         hidHandler.removeCallbacks(mouseRunnable);
 
         lastMouseUpdateNs = 0L;
-        smoothX = 0f;
-        smoothY = 0f;
+        smooth.set(0, 0, 0);
     }
 
     @Override
@@ -481,29 +480,21 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private void processSmoothMouseMovement(float deltaTime) {
-        float angle = (float) Math.toDegrees(Math.atan2(latestGravity[2], latestGravity[0]));
+        float angle = (float) Math.toDegrees(Math.atan2(ground_gravity_vec.z, ground_gravity_vec.x));
 
         isLeftDown = angle > 135;
 
-        double velocityX = gyroscope_vec.z * sensitivity;
-        double velocityY = gyroscope_vec.x * sensitivity;
+        Vector3 displacement = new Vector3(gyroscope_vec.z, gyroscope_vec.x, 0)
+                .multiply(sensitivity)
+                .multiply(deltaTime);
+        smooth.add(displacement);
 
-        smoothX += velocityX * deltaTime;
-        smoothY += velocityY * deltaTime;
+        Vector3 quantized = smooth.clone().__cursorQuantize();
 
-        int dx = (int) smoothX;
-        int dy = (int) smoothY;
+        smooth.subtract(quantized);
+        quantized.multiply(-1).__cursorClamp();
 
-        smoothX -= dx;
-        smoothY -= dy;
-
-        dx *= -1;
-        dy *= -1;
-
-        dx = Math.max(-127, Math.min(127, dx));
-        dy = Math.max(-127, Math.min(127, dy));
-
-        sendHidReport((byte) dx, (byte) dy);
+        sendHidReport((byte) quantized.x, (byte) quantized.y);
     }
 
     @Override

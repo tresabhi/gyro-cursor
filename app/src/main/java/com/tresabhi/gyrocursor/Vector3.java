@@ -35,14 +35,58 @@ public class Vector3 {
         return set(b.x, b.y, b.z);
     }
 
+    public Vector3 clone() {
+        return new Vector3(x, y, z);
+    }
+
     public double magnitude() {
         return Math.sqrt(x * x + y * y + z * z);
+    }
+
+    public Vector3 add(Vector3 b) {
+        x += b.x;
+        y += b.y;
+        z += b.z;
+
+        return this;
+    }
+
+    public Vector3 add(float a, float b, float c) {
+        x += a;
+        y += b;
+        z += c;
+
+        return this;
+    }
+
+    public Vector3 subtract(Vector3 b) {
+        x -= b.x;
+        y -= b.y;
+        z -= b.z;
+
+        return this;
     }
 
     public Vector3 multiply(double c) {
         x *= c;
         y *= c;
         z *= c;
+
+        return this;
+    }
+
+    public Vector3 __cursorQuantize() {
+        x = Math.round(x);
+        y = Math.round(y);
+        z = Math.round(z);
+
+        return this;
+    }
+
+    public Vector3 __cursorClamp() {
+        x = Math.clamp(x, -127, 127);
+        y = Math.clamp(y, -127, 127);
+        z = Math.clamp(z, -127, 127);
 
         return this;
     }
