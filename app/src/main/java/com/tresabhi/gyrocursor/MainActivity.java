@@ -239,7 +239,7 @@ public class MainActivity extends Activity implements SensorEventListener {
                     break;
 
                 case BluetoothDevice.ACTION_NAME_CHANGED:
-                    if (device != null && deviceButtons.containsKey(device.getAddress())) {
+                    if (device != null) {
                         Log.d(TAG, "Name resolved: " + device.getAddress() + " -> " + device.getName());
                         addOrUpdateDeviceButton(device);
                     }
@@ -406,26 +406,34 @@ public class MainActivity extends Activity implements SensorEventListener {
     }
 
     @SuppressLint("MissingPermission")
-    private static String getDisplayName(BluetoothDevice device) {
+    private static String getDeviceName(BluetoothDevice device) {
         String name = device.getName();
 
         if (name == null || name.trim().isEmpty()) {
-            name = "Unknown device";
+            return null;
         }
 
-        return name + "\n[" + device.getAddress() + "]";
+        return name.trim();
     }
 
+    // unnamed devices stay hidden until ACTION_NAME_CHANGED gives them a name
     private void addOrUpdateDeviceButton(BluetoothDevice device) {
+        String name = getDeviceName(device);
+
+        if (name == null) {
+            return;
+        }
+
+        String displayName = name + "\n[" + device.getAddress() + "]";
         Button existing = deviceButtons.get(device.getAddress());
 
         if (existing != null) {
-            existing.setText(getDisplayName(device));
+            existing.setText(displayName);
             return;
         }
 
         Button deviceButton = new Button(this);
-        deviceButton.setText(getDisplayName(device));
+        deviceButton.setText(displayName);
         deviceButton.setTransformationMethod(null);
 
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
