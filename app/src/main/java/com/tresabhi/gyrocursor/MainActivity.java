@@ -22,6 +22,7 @@ import android.hardware.SensorManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.ViewGroup;
@@ -150,14 +151,17 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     private Vector3 smooth = new Vector3();
 
-    // 60Hz is a common screen refresh rate
-    private static final long MOUSE_INTERVAL_MS = (long) (1000f / 60f);
+    // matches a 165Hz monitor; not a whole number of ms, so the loop schedules
+    // against a running deadline instead of a fixed delay
+    private static final double MOUSE_INTERVAL_MS = 1000.0 / 165.0;
+    private double nextMouseUpdateMs = 0;
     private static float sensitivity = 900f;
 
     private boolean mouseLoopRunning = false;
 
     private volatile boolean isLeftDown = false;
     private volatile boolean isRightDown = false;
+    private volatile boolean isLeftTiltDown = false;
 
     // the magnitude matters for this one
     private volatile Vector3 gyroscope_vec = new Vector3();
@@ -568,6 +572,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         if (!mouseLoopRunning) {
             mouseLoopRunning = true;
             lastMouseUpdateNs = 0L;
+            nextMouseUpdateMs = SystemClock.uptimeMillis();
 
             hidHandler.post(mouseRunnable);
         }
@@ -581,6 +586,7 @@ public class MainActivity extends Activity implements SensorEventListener {
 
         lastMouseUpdateNs = 0L;
         smooth.set(0, 0, 0);
+        isLeftTiltDown = false;
     }
 
     @Override
@@ -627,7 +633,15 @@ public class MainActivity extends Activity implements SensorEventListener {
 
             processSmoothMouseMovement(deltaTime);
 
-            hidHandler.postDelayed(this, MOUSE_INTERVAL_MS);
+            double uptimeMs = SystemClock.uptimeMillis();
+            nextMouseUpdateMs += MOUSE_INTERVAL_MS;
+
+            // fell behind (thread was starved); resync instead of bursting
+            if (nextMouseUpdateMs < uptimeMs) {
+                nextMouseUpdateMs = uptimeMs + MOUSE_INTERVAL_MS;
+            }
+
+            hidHandler.postAtTime(this, (long) nextMouseUpdateMs);
         }
     };
 
@@ -635,7 +649,9 @@ public class MainActivity extends Activity implements SensorEventListener {
     private void processSmoothMouseMovement(float deltaTime) {
         float angle = (float) Math.toDegrees(Math.atan2(ground_gravity_vec.z, ground_gravity_vec.x));
 
-        isLeftDown = angle > 135;
+        // kept separate from isLeftDown so the tilt check doesn't overwrite a
+        // held left click button every frame
+        isLeftTiltDown = angle > 135;
 
         Vector3 displacement = new Vector3(gyroscope_vec.z, gyroscope_vec.x, 0)
                 .multiply(sensitivity)
@@ -656,7 +672,7 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @SuppressLint("MissingPermission")
     private void handleButtonTouch(MotionEvent event, boolean isSideLeft) {
-        int action = event.getAction();
+        int action = event.getActionMasked();
 
         if (action == MotionEvent.ACTION_DOWN) {
             if (isSideLeft) {
@@ -685,7 +701,7 @@ public class MainActivity extends Activity implements SensorEventListener {
 
         byte buttonState = 0;
 
-        if (isLeftDown) {
+        if (isLeftDown || isLeftTiltDown) {
             buttonState |= 0b00000001;
         }
 
