@@ -161,7 +161,6 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     private volatile boolean isLeftDown = false;
     private volatile boolean isRightDown = false;
-    private volatile boolean isLeftTiltDown = false;
 
     // the magnitude matters for this one
     private volatile Vector3 gyroscope_vec = new Vector3();
@@ -586,7 +585,6 @@ public class MainActivity extends Activity implements SensorEventListener {
 
         lastMouseUpdateNs = 0L;
         smooth.set(0, 0, 0);
-        isLeftTiltDown = false;
     }
 
     @Override
@@ -647,12 +645,6 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private void processSmoothMouseMovement(float deltaTime) {
-        float angle = (float) Math.toDegrees(Math.atan2(ground_gravity_vec.z, ground_gravity_vec.x));
-
-        // kept separate from isLeftDown so the tilt check doesn't overwrite a
-        // held left click button every frame
-        isLeftTiltDown = angle > 135;
-
         Vector3 displacement = new Vector3(gyroscope_vec.z, gyroscope_vec.x, 0)
                 .multiply(sensitivity)
                 .multiply(deltaTime);
@@ -701,7 +693,7 @@ public class MainActivity extends Activity implements SensorEventListener {
 
         byte buttonState = 0;
 
-        if (isLeftDown || isLeftTiltDown) {
+        if (isLeftDown) {
             buttonState |= 0b00000001;
         }
 
