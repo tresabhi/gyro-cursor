@@ -32,8 +32,10 @@ import android.widget.TextView;
 
 import androidx.annotation.RequiresPermission;
 import androidx.appcompat.widget.AppCompatButton;
+import androidx.core.content.ContextCompat;
 
-import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executors;
 
@@ -130,7 +132,10 @@ public class MainActivity extends Activity implements SensorEventListener {
             (byte) 0xC0                    // End Keyboard Collection
     };
 
-    private final Set<String> discoveredAddresses = new HashSet<>();
+    private final Map<String, Button> deviceButtons = new HashMap<>();
+    private boolean bluetoothStarted = false;
+    private boolean restartDiscoveryPending = false;
+    private BluetoothDevice pendingBondDevice;
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothHidDevice hidDeviceProfile;
     private BluetoothDevice targetDevice;
@@ -197,35 +202,60 @@ public class MainActivity extends Activity implements SensorEventListener {
         @Override
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
-            if (BluetoothDevice.ACTION_FOUND.equals(action)) {
-                BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
 
-                if (device != null) {
-                    String name = device.getName();
+            if (action == null) {
+                return;
+            }
 
-                    // Don't show devices with no name
-                    if (name == null || name.trim().isEmpty()) {
-                        return;
+            BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+
+            switch (action) {
+                case BluetoothAdapter.ACTION_DISCOVERY_STARTED:
+                    Log.d(TAG, "Discovery started");
+                    statusTextView.setText("Scanning for devices...");
+                    break;
+
+                case BluetoothAdapter.ACTION_DISCOVERY_FINISHED:
+                    Log.d(TAG, "Discovery finished");
+
+                    // cancelDiscovery() is asynchronous, so a rescan requested
+                    // mid-scan waits until the old one has actually stopped
+                    if (restartDiscoveryPending) {
+                        restartDiscoveryPending = false;
+                        startDeviceDiscovery();
+                    } else if (targetDevice == null && pendingBondDevice == null) {
+                        statusTextView.setText("Scan finished. Tap a device to connect.");
                     }
+                    break;
 
-                    String address = device.getAddress();
-
-                    if (discoveredAddresses.add(address)) {
-                        String displayName = name + "\n[" + address + "]";
-                        runOnUiThread(() -> addDeviceButton(device, displayName));
+                case BluetoothDevice.ACTION_FOUND:
+                    if (device != null) {
+                        // Classic inquiry often reports the device before its
+                        // friendly name is known, so the name may be null here
+                        // and arrive later through ACTION_NAME_CHANGED
+                        Log.d(TAG, "Found: " + device.getAddress() + " name=" + device.getName());
+                        addOrUpdateDeviceButton(device);
                     }
-                }
+                    break;
+
+                case BluetoothDevice.ACTION_NAME_CHANGED:
+                    if (device != null && deviceButtons.containsKey(device.getAddress())) {
+                        Log.d(TAG, "Name resolved: " + device.getAddress() + " -> " + device.getName());
+                        addOrUpdateDeviceButton(device);
+                    }
+                    break;
+
+                case BluetoothDevice.ACTION_BOND_STATE_CHANGED:
+                    onBondStateChanged(device, intent.getIntExtra(
+                            BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR));
+                    break;
             }
         }
     };
 
-    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        BluetoothPermissionManager manager = new BluetoothPermissionManager(this);
-        manager.checkAndRequestPermissions();
 
         createSimpleUI();
 
@@ -245,11 +275,48 @@ public class MainActivity extends Activity implements SensorEventListener {
             return;
         }
 
-        setupHidProfile();
-
         IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
-        registerReceiver(discoveryReceiver, filter);
+        filter.addAction(BluetoothDevice.ACTION_NAME_CHANGED);
+        filter.addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
+        filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_STARTED);
+        filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
+        ContextCompat.registerReceiver(this, discoveryReceiver, filter, ContextCompat.RECEIVER_EXPORTED);
 
+        BluetoothPermissionManager manager = new BluetoothPermissionManager(this);
+
+        // requesting is asynchronous; if anything is missing, startBluetooth()
+        // runs from onRequestPermissionsResult once the user responds
+        if (manager.checkAndRequestPermissions()) {
+            startBluetooth();
+        } else {
+            statusTextView.setText("Waiting for Bluetooth permissions...");
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+        if (requestCode != BluetoothPermissionManager.REQUEST_BLUETOOTH_PERMISSIONS) {
+            return;
+        }
+
+        if (BluetoothPermissionManager.allGranted(grantResults)) {
+            startBluetooth();
+        } else {
+            statusTextView.setText("Error: Bluetooth permissions denied.");
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private void startBluetooth() {
+        if (bluetoothStarted) {
+            return;
+        }
+
+        bluetoothStarted = true;
+
+        setupHidProfile();
         loadPairedDevices();
         startDeviceDiscovery();
     }
@@ -339,9 +406,26 @@ public class MainActivity extends Activity implements SensorEventListener {
     }
 
     @SuppressLint("MissingPermission")
-    private void addDeviceButton(BluetoothDevice device, String displayName) {
+    private static String getDisplayName(BluetoothDevice device) {
+        String name = device.getName();
+
+        if (name == null || name.trim().isEmpty()) {
+            name = "Unknown device";
+        }
+
+        return name + "\n[" + device.getAddress() + "]";
+    }
+
+    private void addOrUpdateDeviceButton(BluetoothDevice device) {
+        Button existing = deviceButtons.get(device.getAddress());
+
+        if (existing != null) {
+            existing.setText(getDisplayName(device));
+            return;
+        }
+
         Button deviceButton = new Button(this);
-        deviceButton.setText(displayName);
+        deviceButton.setText(getDisplayName(device));
         deviceButton.setTransformationMethod(null);
 
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
@@ -349,18 +433,70 @@ public class MainActivity extends Activity implements SensorEventListener {
         params.setMargins(0, 0, 0, 16);
         deviceButton.setLayoutParams(params);
 
-        deviceButton.setOnClickListener(v -> {
-            if (bluetoothAdapter != null && bluetoothAdapter.isDiscovering()) {
-                bluetoothAdapter.cancelDiscovery();
-            }
-            statusTextView.setText("Connecting to: " + device.getAddress() + "...");
+        deviceButton.setOnClickListener(v -> onDeviceSelected(device));
 
-            if (hidDeviceProfile != null) {
-                hidDeviceProfile.connect(device);
-            }
-        });
-
+        deviceButtons.put(device.getAddress(), deviceButton);
         deviceContainerLayout.addView(deviceButton);
+    }
+
+    @SuppressLint("MissingPermission")
+    private void onDeviceSelected(BluetoothDevice device) {
+        if (bluetoothAdapter != null && bluetoothAdapter.isDiscovering()) {
+            restartDiscoveryPending = false;
+            bluetoothAdapter.cancelDiscovery();
+        }
+
+        // the HID Device profile won't bond on its own, so pair first and
+        // connect once the bond completes
+        if (device.getBondState() != BluetoothDevice.BOND_BONDED) {
+            pendingBondDevice = device;
+            statusTextView.setText("Pairing with: " + device.getAddress() + "...");
+
+            if (device.getBondState() == BluetoothDevice.BOND_NONE && !device.createBond()) {
+                Log.w(TAG, "createBond() returned false for " + device.getAddress());
+                pendingBondDevice = null;
+                statusTextView.setText("Error: could not start pairing.");
+            }
+            return;
+        }
+
+        connectHid(device);
+    }
+
+    @SuppressLint("MissingPermission")
+    private void onBondStateChanged(BluetoothDevice device, int bondState) {
+        if (device == null) {
+            return;
+        }
+
+        Log.d(TAG, "Bond state for " + device.getAddress() + ": " + bondState);
+
+        if (pendingBondDevice == null || !pendingBondDevice.equals(device)) {
+            return;
+        }
+
+        if (bondState == BluetoothDevice.BOND_BONDED) {
+            pendingBondDevice = null;
+            connectHid(device);
+        } else if (bondState == BluetoothDevice.BOND_NONE) {
+            pendingBondDevice = null;
+            statusTextView.setText("Pairing failed or was rejected.");
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private void connectHid(BluetoothDevice device) {
+        statusTextView.setText("Connecting to: " + device.getAddress() + "...");
+
+        if (hidDeviceProfile == null) {
+            statusTextView.setText("Error: HID profile not ready yet.");
+            return;
+        }
+
+        if (!hidDeviceProfile.connect(device)) {
+            Log.w(TAG, "connect() returned false for " + device.getAddress());
+            statusTextView.setText("Error: could not connect to " + device.getAddress());
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -394,15 +530,24 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @SuppressLint("MissingPermission")
     private void startDeviceDiscovery() {
-        if (bluetoothAdapter != null) {
+        if (bluetoothAdapter == null || !bluetoothStarted) {
+            return;
+        }
 
-            if (bluetoothAdapter.isDiscovering()) {
-                bluetoothAdapter.cancelDiscovery();
-            }
+        stopSensors();
 
-            stopSensors();
+        if (bluetoothAdapter.isDiscovering()) {
+            // restarted from ACTION_DISCOVERY_FINISHED
+            restartDiscoveryPending = true;
+            bluetoothAdapter.cancelDiscovery();
+            return;
+        }
 
-            bluetoothAdapter.startDiscovery();
+        boolean started = bluetoothAdapter.startDiscovery();
+        Log.d(TAG, "startDiscovery() returned " + started);
+
+        if (!started) {
+            statusTextView.setText("Error: could not start scan. Is Bluetooth on?");
         }
     }
 
@@ -576,19 +721,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         Set<BluetoothDevice> pairedDevices = bluetoothAdapter.getBondedDevices();
 
         for (BluetoothDevice device : pairedDevices) {
-            String name = device.getName();
-
-            if (name == null || name.trim().isEmpty()) {
-                name = "Unknown device";
-            }
-
-            String address = device.getAddress();
-
-            if (discoveredAddresses.add(address)) {
-                String displayName = name + "\n[" + address + "]";
-
-                addDeviceButton(device, displayName);
-            }
+            addOrUpdateDeviceButton(device);
         }
     }
 }
