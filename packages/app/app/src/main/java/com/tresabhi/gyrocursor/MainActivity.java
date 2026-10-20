@@ -22,6 +22,7 @@ import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.HandlerThread;
 import android.os.SystemClock;
 import android.text.Editable;
@@ -44,6 +45,8 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.HashMap;
@@ -173,6 +176,14 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     private boolean mouseLoopRunning = false;
 
+    // mirrors the dashboard's cursor state; "disabled" suppresses all mouse output and
+    // only "cursor" moves the pointer. Assumed "cursor" until the dashboard says otherwise.
+    private volatile boolean cursorDisabled = false;
+    private volatile boolean cursorMoves = true;
+    private volatile int stateStreamGeneration = 0;
+    private volatile HttpURLConnection stateStreamConn;
+    private final Handler uiHandler = new Handler(Looper.getMainLooper());
+    private Runnable pendingStreamRestart;
     private volatile boolean isLeftDown = false;
     private volatile boolean isRightDown = false;
 
@@ -397,10 +408,15 @@ public class MainActivity extends Activity implements SensorEventListener {
 
             @Override
             public void afterTextChanged(Editable s) {
-                prefs.edit().putString(PREF_HOST, s.toString().trim()).apply();
+                String host = s.toString().trim();
+                prefs.edit().putString(PREF_HOST, host).apply();
+                uiHandler.removeCallbacks(pendingStreamRestart);
+                pendingStreamRestart = () -> startStateStream(host);
+                uiHandler.postDelayed(pendingStreamRestart, 600);
             }
         });
         rootLayout.addView(hostInput);
+        startStateStream(hostInput.getText().toString().trim());
 
         LinearLayout clickContainer = new LinearLayout(this);
         clickContainer.setOrientation(LinearLayout.HORIZONTAL);
@@ -470,16 +486,81 @@ public class MainActivity extends Activity implements SensorEventListener {
         setContentView(rootLayout);
     }
 
+    private static String dashboardBase(String host) {
+        String base = host.contains("://") ? host : "http://" + host;
+        if (!host.matches(".*:\\d+$")) {
+            base += ":" + DASHBOARD_PORT;
+        }
+        return base;
+    }
+
+    /** Follows the dashboard's state events, reconnecting until the host changes or we're destroyed. */
+    private void startStateStream(String host) {
+        final int generation = ++stateStreamGeneration;
+        HttpURLConnection old = stateStreamConn;
+        if (old != null) {
+            old.disconnect();
+        }
+        if (host.isEmpty()) {
+            return;
+        }
+        final String url = dashboardBase(host) + "/api/state/cursor/events";
+        new Thread(() -> {
+            while (generation == stateStreamGeneration) {
+                try {
+                    HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+                    conn.setConnectTimeout(2000);
+                    stateStreamConn = conn;
+                    try (BufferedReader in = new BufferedReader(
+                            new InputStreamReader(conn.getInputStream()))) {
+                        String line;
+                        while (generation == stateStreamGeneration && (line = in.readLine()) != null) {
+                            if (line.startsWith("data: ")) {
+                                applyCursorState(line.substring(6).trim());
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.w("GyroCursor", "state stream: " + e.getMessage());
+                }
+                if (generation == stateStreamGeneration) {
+                    try {
+                        Thread.sleep(2000);
+                    } catch (InterruptedException ignored) {
+                        return;
+                    }
+                }
+            }
+        }, "state-stream").start();
+    }
+
+    @SuppressLint("MissingPermission")
+    private void applyCursorState(String state) {
+        final boolean disabled = state.equals("disabled");
+        final boolean moves = state.equals("cursor");
+        // run on the hid thread so the release report can't interleave with the mouse loop
+        hidHandler.post(() -> {
+            if (disabled) {
+                // release anything held so the host isn't left with a stuck button
+                isLeftDown = false;
+                isRightDown = false;
+                sendHidReport((byte) 0, (byte) 0);
+                smooth.set(0, 0, 0);
+            }
+            cursorDisabled = disabled;
+            cursorMoves = moves;
+            if (!moves) {
+                smooth.set(0, 0, 0);
+            }
+        });
+    }
+
     private void cycleCursor(String host) {
         if (host.isEmpty()) {
             Toast.makeText(this, "Enter the dashboard host first", Toast.LENGTH_SHORT).show();
             return;
         }
-        String base = host.contains("://") ? host : "http://" + host;
-        if (!host.matches(".*:\\d+$")) {
-            base += ":" + DASHBOARD_PORT;
-        }
-        final String url = base + "/api/state/cursor/cycle";
+        final String url = dashboardBase(host) + "/api/state/cursor/cycle";
         Executors.newSingleThreadExecutor().execute(() -> {
             String error = null;
             try {
@@ -740,6 +821,9 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private void processSmoothMouseMovement(float deltaTime) {
+        if (!cursorMoves) {
+            return;
+        }
         Vector3 displacement = new Vector3(gyroscope_vec.z, gyroscope_vec.x, 0)
                 .multiply(sensitivity)
                 .multiply(deltaTime);
@@ -760,6 +844,10 @@ public class MainActivity extends Activity implements SensorEventListener {
     @SuppressLint("MissingPermission")
     private void handleButtonTouch(MotionEvent event, boolean isSideLeft) {
         int action = event.getActionMasked();
+
+        if (cursorDisabled) {
+            return;
+        }
 
         if (action == MotionEvent.ACTION_DOWN) {
             if (isSideLeft) {
@@ -782,7 +870,7 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private void sendHidReport(byte du, byte dv) {
-        if (hidDeviceProfile == null || targetDevice == null) {
+        if (hidDeviceProfile == null || targetDevice == null || cursorDisabled) {
             return;
         }
 
@@ -810,6 +898,11 @@ public class MainActivity extends Activity implements SensorEventListener {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        stateStreamGeneration++;
+        if (stateStreamConn != null) {
+            stateStreamConn.disconnect();
+        }
+        uiHandler.removeCallbacksAndMessages(null);
         stopSensors();
         try {
             unregisterReceiver(discoveryReceiver);
