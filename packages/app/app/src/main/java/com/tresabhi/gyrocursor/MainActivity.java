@@ -58,6 +58,9 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     private static final String TAG = "GyroCursor";
 
+    // scroll: tilt (degrees, relative to where scroll started) inside which nothing scrolls
+    private static final double SCROLL_DEADZONE_DEG = 15;
+
     private static final byte[] HID_DESCRIPTOR = new byte[]{
 
             // Report 1 (mouse)
@@ -92,12 +95,13 @@ public class MainActivity extends Activity implements SensorEventListener {
 
             (byte) 0x09, (byte) 0x30,       // Usage (X)
             (byte) 0x09, (byte) 0x31,       // Usage (Y)
+            (byte) 0x09, (byte) 0x38,       // Usage (Wheel)
 
             (byte) 0x15, (byte) 0x81,       // Logical Minimum (-127)
             (byte) 0x25, (byte) 0x7F,       // Logical Maximum (127)
 
             (byte) 0x75, (byte) 0x08,       // Report Size (8)
-            (byte) 0x95, (byte) 0x02,       // Report Count (2)
+            (byte) 0x95, (byte) 0x03,       // Report Count (3)
 
             (byte) 0x81, (byte) 0x06,       // Input (Data, Variable, Relative)
 
@@ -180,6 +184,17 @@ public class MainActivity extends Activity implements SensorEventListener {
     // only "cursor" moves the pointer. Assumed "cursor" until the dashboard says otherwise.
     private volatile boolean cursorDisabled = false;
     private volatile boolean cursorMoves = true;
+    private volatile boolean cursorScrolls = false;
+    private Button cycleButton;
+
+    // scroll tilt: angle (rad) about the phone x axis, relative to where it was when scroll began
+    private static final double SCROLL_TICKS_PER_SEC_PER_RAD = 0.5 * 180 / Math.PI;
+    private static final double SCROLL_MAX_TICKS_PER_SEC = 40;
+    private double scrollReferenceAngle = 0;
+    private double scrollCarry = 0;
+    private boolean scrollReferencePending = false;
+    private volatile boolean gravityValid = false;
+    private long lastScrollLogMs = 0;
     private volatile int stateStreamGeneration = 0;
     private volatile HttpURLConnection stateStreamConn;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
@@ -416,7 +431,6 @@ public class MainActivity extends Activity implements SensorEventListener {
             }
         });
         rootLayout.addView(hostInput);
-        startStateStream(hostInput.getText().toString().trim());
 
         LinearLayout clickContainer = new LinearLayout(this);
         clickContainer.setOrientation(LinearLayout.HORIZONTAL);
@@ -466,7 +480,7 @@ public class MainActivity extends Activity implements SensorEventListener {
             return true;
         });
 
-        Button cycleButton = new AppCompatButton(this) {
+        cycleButton = new AppCompatButton(this) {
             @Override
             protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
                 super.onMeasure(widthMeasureSpec, heightMeasureSpec);
@@ -484,6 +498,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         rootLayout.addView(clickContainer);
 
         setContentView(rootLayout);
+        startStateStream(hostInput.getText().toString().trim());
     }
 
     private static String dashboardBase(String host) {
@@ -502,6 +517,7 @@ public class MainActivity extends Activity implements SensorEventListener {
             old.disconnect();
         }
         if (host.isEmpty()) {
+            cycleButton.setText("Cycle");
             return;
         }
         final String url = dashboardBase(host) + "/api/state/cursor/events";
@@ -536,8 +552,11 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @SuppressLint("MissingPermission")
     private void applyCursorState(String state) {
+        Log.d(TAG, "state event: '" + state + "'");
+        runOnUiThread(() -> cycleButton.setText(state));
         final boolean disabled = state.equals("disabled");
         final boolean moves = state.equals("cursor");
+        final boolean scrolls = state.equals("scroll");
         // run on the hid thread so the release report can't interleave with the mouse loop
         hidHandler.post(() -> {
             if (disabled) {
@@ -552,6 +571,12 @@ public class MainActivity extends Activity implements SensorEventListener {
             if (!moves) {
                 smooth.set(0, 0, 0);
             }
+            if (scrolls && !cursorScrolls) {
+                // the reference is captured on the first tick with real gravity data
+                scrollReferencePending = true;
+                scrollCarry = 0;
+            }
+            cursorScrolls = scrolls;
         });
     }
 
@@ -771,6 +796,7 @@ public class MainActivity extends Activity implements SensorEventListener {
                 break;
 
             case Sensor.TYPE_GRAVITY:
+                gravityValid = true;
                 // andriod gravity sensor points opposite to the direction of
                 // gravity; the abstraction of "down" is better so we amend
                 // this
@@ -821,6 +847,10 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private void processSmoothMouseMovement(float deltaTime) {
+        if (cursorScrolls) {
+            processScroll(deltaTime);
+            return;
+        }
         if (!cursorMoves) {
             return;
         }
@@ -835,6 +865,59 @@ public class MainActivity extends Activity implements SensorEventListener {
         quantized.multiply(-1).__cursorClamp();
 
         sendHidReport((byte) quantized.x, (byte) quantized.y);
+    }
+
+    /**
+     * Signed angle of gravity (projected onto the plane perpendicular to the phone x axis)
+     * from the phone's -z axis, about +x. Zero when the phone lies flat face-up; positive
+     * when the top edge tips down.
+     */
+    private double currentTiltAngle() {
+        Vector3 g = ground_gravity_vec;
+        // cross(-z, g).x = g.y and dot(-z, g) = -g.z; the x component of g drops out
+        return Math.atan2(g.y, -g.z);
+    }
+
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+    private void processScroll(float deltaTime) {
+        if (!gravityValid) {
+            return;
+        }
+        if (scrollReferencePending) {
+            // remember where the phone is held now; tilt is measured relative to this
+            scrollReferenceAngle = currentTiltAngle();
+            scrollReferencePending = false;
+            Log.d(TAG, "scroll start: reference=" + Math.toDegrees(scrollReferenceAngle) + "deg");
+        }
+        double rel = currentTiltAngle() - scrollReferenceAngle;
+        rel = Math.atan2(Math.sin(rel), Math.cos(rel)); // wrap to [-pi, pi]
+
+        double excess = Math.abs(rel) - Math.toRadians(SCROLL_DEADZONE_DEG);
+        long nowMs = SystemClock.uptimeMillis();
+        if (nowMs - lastScrollLogMs >= 100) {
+            lastScrollLogMs = nowMs;
+            Vector3 g = ground_gravity_vec;
+            Log.d(TAG, String.format("scroll tilt=%.1f ref=%.1f rel=%.1f g=(%.2f,%.2f,%.2f)",
+                    Math.toDegrees(currentTiltAngle()), Math.toDegrees(scrollReferenceAngle),
+                    Math.toDegrees(rel), g.x, g.y, g.z));
+        }
+        if (excess <= 0) {
+            scrollCarry = 0;
+            return;
+        }
+
+        double rate = Math.min(excess * SCROLL_TICKS_PER_SEC_PER_RAD, SCROLL_MAX_TICKS_PER_SEC);
+        scrollCarry += Math.signum(rel) * rate * deltaTime;
+
+        int ticks = (int) scrollCarry;
+        if (ticks == 0) {
+            return;
+        }
+        scrollCarry -= ticks;
+
+        Log.d(TAG, "scroll ticks=" + ticks);
+        // tipping the top edge down (positive angle) scrolls down; HID wheel + is up
+        sendHidReport((byte) 0, (byte) 0, (byte) Math.clamp(-ticks, -127, 127));
     }
 
     @Override
@@ -870,6 +953,11 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private void sendHidReport(byte du, byte dv) {
+        sendHidReport(du, dv, (byte) 0);
+    }
+
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+    private void sendHidReport(byte du, byte dv, byte wheel) {
         if (hidDeviceProfile == null || targetDevice == null || cursorDisabled) {
             return;
         }
@@ -884,7 +972,7 @@ public class MainActivity extends Activity implements SensorEventListener {
             buttonState |= 0b00000010;
         }
 
-        byte[] mouseReport = new byte[]{ buttonState, du, dv };
+        byte[] mouseReport = new byte[]{ buttonState, du, dv, wheel };
 
         hidDeviceProfile.sendReport(targetDevice, (byte) 0x01, mouseReport);
         // hidDeviceProfile.sendReport(targetDevice, (byte) 0x02, keyboardReport);

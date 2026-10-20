@@ -103,7 +103,7 @@ public class Vector3 {
         return new Vector3(
                 y * b.z - z * b.y,
                 z * b.x - x * b.z,
-                x * b.y - y * b.z
+                x * b.y - y * b.x
         );
     }
 }
