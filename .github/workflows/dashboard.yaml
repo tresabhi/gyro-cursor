@@ -1,0 +1,37 @@
+name: Dashboard
+
+on:
+  push:
+    paths:
+      - packages/dashboard/**
+      - .github/workflows/dashboard.yaml
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: packages/dashboard
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: packages/dashboard/go.mod
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build -o dashboard .
+
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: dashboard
+          path: packages/dashboard/dashboard

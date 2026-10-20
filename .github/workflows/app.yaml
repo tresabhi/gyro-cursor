@@ -1,6 +1,10 @@
-name: Build
+name: App
 
-on: push
+on:
+  push:
+    paths:
+      - packages/app/**
+      - .github/workflows/app.yaml
 
 jobs:
   build:
