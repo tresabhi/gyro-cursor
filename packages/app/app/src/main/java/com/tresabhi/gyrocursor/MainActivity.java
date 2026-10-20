@@ -14,6 +14,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
@@ -23,10 +24,15 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.SystemClock;
+import android.text.Editable;
+import android.text.TextWatcher;
+import android.text.InputType;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.EditText;
+import android.widget.Toast;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -34,7 +40,12 @@ import android.widget.TextView;
 import androidx.annotation.RequiresPermission;
 import androidx.appcompat.widget.AppCompatButton;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -134,6 +145,9 @@ public class MainActivity extends Activity implements SensorEventListener {
     };
 
     private final Map<String, Button> deviceButtons = new HashMap<>();
+    private static final String PREFS = "gyro_cursor";
+    private static final String PREF_HOST = "dashboard_host";
+    private static final int DASHBOARD_PORT = 4321;
     private boolean bluetoothStarted = false;
     private boolean restartDiscoveryPending = false;
     private BluetoothDevice pendingBondDevice;
@@ -330,6 +344,13 @@ public class MainActivity extends Activity implements SensorEventListener {
         rootLayout.setOrientation(LinearLayout.VERTICAL);
         rootLayout.setPadding(32, 32, 32, 32);
         rootLayout.setBackgroundColor(Color.parseColor("#F5F5F7"));
+        // edge-to-edge: the window doesn't resize for the keyboard, so pad by the insets ourselves
+        ViewCompat.setOnApplyWindowInsetsListener(rootLayout, (v, windowInsets) -> {
+            Insets bars = windowInsets.getInsets(
+                    WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.ime());
+            v.setPadding(32 + bars.left, 32 + bars.top, 32 + bars.right, 32 + bars.bottom);
+            return WindowInsetsCompat.CONSUMED;
+        });
 
         statusTextView = new TextView(this);
         statusTextView.setText("HID Profile State: Initializing...");
@@ -356,6 +377,30 @@ public class MainActivity extends Activity implements SensorEventListener {
 
         scrollView.addView(deviceContainerLayout);
         rootLayout.addView(scrollView);
+
+        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        EditText hostInput = new EditText(this);
+        hostInput.setHint("Dashboard host (e.g. 192.168.1.5:4321)");
+        hostInput.setTextColor(Color.BLACK);
+        hostInput.setHintTextColor(Color.GRAY);
+        hostInput.setSingleLine(true);
+        hostInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        hostInput.setText(prefs.getString(PREF_HOST, ""));
+        hostInput.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                prefs.edit().putString(PREF_HOST, s.toString().trim()).apply();
+            }
+        });
+        rootLayout.addView(hostInput);
 
         LinearLayout clickContainer = new LinearLayout(this);
         clickContainer.setOrientation(LinearLayout.HORIZONTAL);
@@ -386,6 +431,10 @@ public class MainActivity extends Activity implements SensorEventListener {
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f);
         rightButtonParams.setMargins(8, 0, 0, 0);
 
+        LinearLayout.LayoutParams cycleButtonParams = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f);
+        cycleButtonParams.setMargins(8, 0, 8, 0);
+
         Button rightClickButton = new AppCompatButton(this) {
             @Override
             protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
@@ -401,11 +450,57 @@ public class MainActivity extends Activity implements SensorEventListener {
             return true;
         });
 
+        Button cycleButton = new AppCompatButton(this) {
+            @Override
+            protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+                int width = getMeasuredWidth();
+                setMeasuredDimension(width, width);
+            }
+        };
+        cycleButton.setText("Cycle");
+        cycleButton.setLayoutParams(cycleButtonParams);
+        cycleButton.setOnClickListener(v -> cycleCursor(hostInput.getText().toString().trim()));
+
         clickContainer.addView(leftClickButton);
+        clickContainer.addView(cycleButton);
         clickContainer.addView(rightClickButton);
         rootLayout.addView(clickContainer);
 
         setContentView(rootLayout);
+    }
+
+    private void cycleCursor(String host) {
+        if (host.isEmpty()) {
+            Toast.makeText(this, "Enter the dashboard host first", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String base = host.contains("://") ? host : "http://" + host;
+        if (!host.matches(".*:\\d+$")) {
+            base += ":" + DASHBOARD_PORT;
+        }
+        final String url = base + "/api/state/cursor/cycle";
+        Executors.newSingleThreadExecutor().execute(() -> {
+            String error = null;
+            try {
+                HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(2000);
+                conn.setReadTimeout(2000);
+                int code = conn.getResponseCode();
+                if (code >= 400) {
+                    error = "Dashboard returned " + code;
+                }
+                conn.disconnect();
+            } catch (Exception e) {
+                Log.e("GyroCursor", "cycle failed", e);
+                error = "Cycle failed: " + e.getMessage();
+            }
+            if (error != null) {
+                final String msg = error;
+                runOnUiThread(() -> Toast.makeText(this, msg, Toast.LENGTH_SHORT).show());
+            }
+        });
     }
 
     @SuppressLint("MissingPermission")
