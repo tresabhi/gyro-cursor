@@ -59,7 +59,12 @@ public class MainActivity extends Activity implements SensorEventListener {
     private static final String TAG = "GyroCursor";
 
     // scroll: tilt (degrees, relative to where scroll started) inside which nothing scrolls
-    private static final double SCROLL_DEADZONE_DEG = 15;
+    private static final double SCROLL_DEADZONE_DEG = 5;
+
+    // click: roll (degrees, relative to where click started) that presses a button, and the
+    // smaller roll it must come back inside before the button releases
+    private static final double CLICK_PRESS_DEG = 20;
+    private static final double CLICK_RELEASE_DEG = 12;
 
     private static final byte[] HID_DESCRIPTOR = new byte[]{
 
@@ -185,6 +190,13 @@ public class MainActivity extends Activity implements SensorEventListener {
     private volatile boolean cursorDisabled = false;
     private volatile boolean cursorMoves = true;
     private volatile boolean cursorScrolls = false;
+    private volatile boolean cursorClicks = false;
+
+    // click roll state: angle (rad) about the phone y axis relative to where click began
+    private double clickReferenceAngle = 0;
+    private boolean clickReferencePending = false;
+    private boolean tiltLeftDown = false;
+    private boolean tiltRightDown = false;
     private Button cycleButton;
 
     // scroll tilt: angle (rad) about the phone x axis, relative to where it was when scroll began
@@ -557,6 +569,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         final boolean disabled = state.equals("disabled");
         final boolean moves = state.equals("cursor");
         final boolean scrolls = state.equals("scroll");
+        final boolean clicks = state.equals("click");
         // run on the hid thread so the release report can't interleave with the mouse loop
         hidHandler.post(() -> {
             if (disabled) {
@@ -577,6 +590,13 @@ public class MainActivity extends Activity implements SensorEventListener {
                 scrollCarry = 0;
             }
             cursorScrolls = scrolls;
+
+            if (clicks && !cursorClicks) {
+                clickReferencePending = true;
+            } else if (!clicks && cursorClicks) {
+                releaseTiltButtons();
+            }
+            cursorClicks = clicks;
         });
     }
 
@@ -851,6 +871,10 @@ public class MainActivity extends Activity implements SensorEventListener {
             processScroll(deltaTime);
             return;
         }
+        if (cursorClicks) {
+            processClick();
+            return;
+        }
         if (!cursorMoves) {
             return;
         }
@@ -876,6 +900,66 @@ public class MainActivity extends Activity implements SensorEventListener {
         Vector3 g = ground_gravity_vec;
         // cross(-z, g).x = g.y and dot(-z, g) = -g.z; the x component of g drops out
         return Math.atan2(g.y, -g.z);
+    }
+
+    /**
+     * Signed roll of the phone about its y axis: angle of gravity (projected onto the plane
+     * perpendicular to y) from the phone's -z axis. Zero when the phone lies flat face-up;
+     * positive when the right edge (+x) dips toward the ground.
+     */
+    private double currentRollAngle() {
+        Vector3 g = ground_gravity_vec;
+        return Math.atan2(g.x, -g.z);
+    }
+
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+    private void processClick() {
+        if (!gravityValid) {
+            return;
+        }
+        if (clickReferencePending) {
+            clickReferenceAngle = currentRollAngle();
+            clickReferencePending = false;
+            Log.d(TAG, "click start: reference=" + Math.toDegrees(clickReferenceAngle) + "deg");
+        }
+
+        double rel = currentRollAngle() - clickReferenceAngle;
+        rel = Math.atan2(Math.sin(rel), Math.cos(rel)); // wrap to [-pi, pi]
+
+        double press = Math.toRadians(CLICK_PRESS_DEG);
+        double release = Math.toRadians(CLICK_RELEASE_DEG);
+
+        // right edge down -> right button, left edge down -> left button; held while tilted
+        boolean wantRight = tiltRightDown ? rel > release : rel > press;
+        boolean wantLeft = tiltLeftDown ? rel < -release : rel < -press;
+
+        if (wantRight == tiltRightDown && wantLeft == tiltLeftDown) {
+            return;
+        }
+        Log.d(TAG, String.format("click rel=%.1f left=%b right=%b",
+                Math.toDegrees(rel), wantLeft, wantRight));
+        tiltRightDown = wantRight;
+        tiltLeftDown = wantLeft;
+        isRightDown = wantRight;
+        isLeftDown = wantLeft;
+        sendHidReport((byte) 0, (byte) 0);
+    }
+
+    /** Lets go of any button the tilt is holding (leaving click state). */
+    @SuppressLint("MissingPermission")
+    private void releaseTiltButtons() {
+        if (!tiltLeftDown && !tiltRightDown) {
+            return;
+        }
+        if (tiltLeftDown) {
+            isLeftDown = false;
+        }
+        if (tiltRightDown) {
+            isRightDown = false;
+        }
+        tiltLeftDown = false;
+        tiltRightDown = false;
+        sendHidReport((byte) 0, (byte) 0);
     }
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
