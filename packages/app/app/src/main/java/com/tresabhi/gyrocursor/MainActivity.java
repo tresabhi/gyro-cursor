@@ -14,7 +14,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
@@ -22,18 +21,12 @@ import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.Bundle;
 import android.os.Handler;
-import android.os.Looper;
 import android.os.HandlerThread;
 import android.os.SystemClock;
-import android.text.Editable;
-import android.text.TextWatcher;
-import android.text.InputType;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.ViewGroup;
 import android.widget.Button;
-import android.widget.EditText;
-import android.widget.Toast;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -45,10 +38,6 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -59,7 +48,6 @@ public class MainActivity extends Activity implements SensorEventListener {
     private static final String TAG = "GyroCursor";
 
     // scroll: tilt (degrees, relative to where scroll started) inside which nothing scrolls
-    private static final double SCROLL_DEADZONE_DEG = 5;
 
     // click: roll (degrees, relative to where click started) that presses a button, and the
     // smaller roll it must come back inside before the button releases
@@ -157,9 +145,6 @@ public class MainActivity extends Activity implements SensorEventListener {
     };
 
     private final Map<String, Button> deviceButtons = new HashMap<>();
-    private static final String PREFS = "gyro_cursor";
-    private static final String PREF_HOST = "dashboard_host";
-    private static final int DASHBOARD_PORT = 4321;
     private boolean bluetoothStarted = false;
     private boolean restartDiscoveryPending = false;
     private BluetoothDevice pendingBondDevice;
@@ -185,32 +170,6 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     private boolean mouseLoopRunning = false;
 
-    // mirrors the dashboard's cursor state; "disabled" suppresses all mouse output and
-    // only "cursor" moves the pointer. Assumed "cursor" until the dashboard says otherwise.
-    private volatile boolean cursorDisabled = false;
-    private volatile boolean cursorMoves = true;
-    private volatile boolean cursorScrolls = false;
-    private volatile boolean cursorClicks = false;
-
-    // click roll state: angle (rad) about the phone y axis relative to where click began
-    private double clickReferenceAngle = 0;
-    private boolean clickReferencePending = false;
-    private boolean tiltLeftDown = false;
-    private boolean tiltRightDown = false;
-    private Button cycleButton;
-
-    // scroll tilt: angle (rad) about the phone x axis, relative to where it was when scroll began
-    private static final double SCROLL_TICKS_PER_SEC_PER_RAD = 0.5 * 180 / Math.PI;
-    private static final double SCROLL_MAX_TICKS_PER_SEC = 40;
-    private double scrollReferenceAngle = 0;
-    private double scrollCarry = 0;
-    private boolean scrollReferencePending = false;
-    private volatile boolean gravityValid = false;
-    private long lastScrollLogMs = 0;
-    private volatile int stateStreamGeneration = 0;
-    private volatile HttpURLConnection stateStreamConn;
-    private final Handler uiHandler = new Handler(Looper.getMainLooper());
-    private Runnable pendingStreamRestart;
     private volatile boolean isLeftDown = false;
     private volatile boolean isRightDown = false;
 
@@ -400,6 +359,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         Button scanButton = new Button(this);
         scanButton.setText("Scan for Devices");
         scanButton.setOnClickListener(v -> startDeviceDiscovery());
+        scanButton.setVisibility(android.view.View.GONE); // hidden for now
         rootLayout.addView(scanButton);
 
         ScrollView scrollView = new ScrollView(this);
@@ -415,34 +375,6 @@ public class MainActivity extends Activity implements SensorEventListener {
 
         scrollView.addView(deviceContainerLayout);
         rootLayout.addView(scrollView);
-
-        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        EditText hostInput = new EditText(this);
-        hostInput.setHint("Dashboard host (e.g. 192.168.1.5:4321)");
-        hostInput.setTextColor(Color.BLACK);
-        hostInput.setHintTextColor(Color.GRAY);
-        hostInput.setSingleLine(true);
-        hostInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        hostInput.setText(prefs.getString(PREF_HOST, ""));
-        hostInput.addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-            }
-
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-            }
-
-            @Override
-            public void afterTextChanged(Editable s) {
-                String host = s.toString().trim();
-                prefs.edit().putString(PREF_HOST, host).apply();
-                uiHandler.removeCallbacks(pendingStreamRestart);
-                pendingStreamRestart = () -> startStateStream(host);
-                uiHandler.postDelayed(pendingStreamRestart, 600);
-            }
-        });
-        rootLayout.addView(hostInput);
 
         LinearLayout clickContainer = new LinearLayout(this);
         clickContainer.setOrientation(LinearLayout.HORIZONTAL);
@@ -473,10 +405,6 @@ public class MainActivity extends Activity implements SensorEventListener {
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f);
         rightButtonParams.setMargins(8, 0, 0, 0);
 
-        LinearLayout.LayoutParams cycleButtonParams = new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f);
-        cycleButtonParams.setMargins(8, 0, 8, 0);
-
         Button rightClickButton = new AppCompatButton(this) {
             @Override
             protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
@@ -492,141 +420,12 @@ public class MainActivity extends Activity implements SensorEventListener {
             return true;
         });
 
-        cycleButton = new AppCompatButton(this) {
-            @Override
-            protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-                int width = getMeasuredWidth();
-                setMeasuredDimension(width, width);
-            }
-        };
-        cycleButton.setText("Cycle");
-        cycleButton.setLayoutParams(cycleButtonParams);
-        cycleButton.setOnClickListener(v -> cycleCursor(hostInput.getText().toString().trim()));
-
         clickContainer.addView(leftClickButton);
-        clickContainer.addView(cycleButton);
         clickContainer.addView(rightClickButton);
+        clickContainer.setVisibility(android.view.View.GONE); // hidden for now
         rootLayout.addView(clickContainer);
 
         setContentView(rootLayout);
-        startStateStream(hostInput.getText().toString().trim());
-    }
-
-    private static String dashboardBase(String host) {
-        String base = host.contains("://") ? host : "http://" + host;
-        if (!host.matches(".*:\\d+$")) {
-            base += ":" + DASHBOARD_PORT;
-        }
-        return base;
-    }
-
-    /** Follows the dashboard's state events, reconnecting until the host changes or we're destroyed. */
-    private void startStateStream(String host) {
-        final int generation = ++stateStreamGeneration;
-        HttpURLConnection old = stateStreamConn;
-        if (old != null) {
-            old.disconnect();
-        }
-        if (host.isEmpty()) {
-            cycleButton.setText("Cycle");
-            return;
-        }
-        final String url = dashboardBase(host) + "/api/state/cursor/events";
-        new Thread(() -> {
-            while (generation == stateStreamGeneration) {
-                try {
-                    HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-                    conn.setConnectTimeout(2000);
-                    stateStreamConn = conn;
-                    try (BufferedReader in = new BufferedReader(
-                            new InputStreamReader(conn.getInputStream()))) {
-                        String line;
-                        while (generation == stateStreamGeneration && (line = in.readLine()) != null) {
-                            if (line.startsWith("data: ")) {
-                                applyCursorState(line.substring(6).trim());
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    Log.w("GyroCursor", "state stream: " + e.getMessage());
-                }
-                if (generation == stateStreamGeneration) {
-                    try {
-                        Thread.sleep(2000);
-                    } catch (InterruptedException ignored) {
-                        return;
-                    }
-                }
-            }
-        }, "state-stream").start();
-    }
-
-    @SuppressLint("MissingPermission")
-    private void applyCursorState(String state) {
-        Log.d(TAG, "state event: '" + state + "'");
-        runOnUiThread(() -> cycleButton.setText(state));
-        final boolean disabled = state.equals("disabled");
-        final boolean moves = state.equals("cursor");
-        final boolean scrolls = state.equals("scroll");
-        final boolean clicks = state.equals("click");
-        // run on the hid thread so the release report can't interleave with the mouse loop
-        hidHandler.post(() -> {
-            if (disabled) {
-                // release anything held so the host isn't left with a stuck button
-                isLeftDown = false;
-                isRightDown = false;
-                sendHidReport((byte) 0, (byte) 0);
-                smooth.set(0, 0, 0);
-            }
-            cursorDisabled = disabled;
-            cursorMoves = moves;
-            if (!moves) {
-                smooth.set(0, 0, 0);
-            }
-            if (scrolls && !cursorScrolls) {
-                // the reference is captured on the first tick with real gravity data
-                scrollReferencePending = true;
-                scrollCarry = 0;
-            }
-            cursorScrolls = scrolls;
-
-            if (clicks && !cursorClicks) {
-                clickReferencePending = true;
-            } else if (!clicks && cursorClicks) {
-                releaseTiltButtons();
-            }
-            cursorClicks = clicks;
-        });
-    }
-
-    private void cycleCursor(String host) {
-        if (host.isEmpty()) {
-            Toast.makeText(this, "Enter the dashboard host first", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        final String url = dashboardBase(host) + "/api/state/cursor/cycle";
-        Executors.newSingleThreadExecutor().execute(() -> {
-            String error = null;
-            try {
-                HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-                conn.setRequestMethod("POST");
-                conn.setConnectTimeout(2000);
-                conn.setReadTimeout(2000);
-                int code = conn.getResponseCode();
-                if (code >= 400) {
-                    error = "Dashboard returned " + code;
-                }
-                conn.disconnect();
-            } catch (Exception e) {
-                Log.e("GyroCursor", "cycle failed", e);
-                error = "Cycle failed: " + e.getMessage();
-            }
-            if (error != null) {
-                final String msg = error;
-                runOnUiThread(() -> Toast.makeText(this, msg, Toast.LENGTH_SHORT).show());
-            }
-        });
     }
 
     @SuppressLint("MissingPermission")
@@ -816,7 +615,6 @@ public class MainActivity extends Activity implements SensorEventListener {
                 break;
 
             case Sensor.TYPE_GRAVITY:
-                gravityValid = true;
                 // andriod gravity sensor points opposite to the direction of
                 // gravity; the abstraction of "down" is better so we amend
                 // this
@@ -867,17 +665,6 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private void processSmoothMouseMovement(float deltaTime) {
-        if (cursorScrolls) {
-            processScroll(deltaTime);
-            return;
-        }
-        if (cursorClicks) {
-            processClick();
-            return;
-        }
-        if (!cursorMoves) {
-            return;
-        }
         Vector3 displacement = new Vector3(gyroscope_vec.z, gyroscope_vec.x, 0)
                 .multiply(sensitivity)
                 .multiply(deltaTime);
@@ -891,119 +678,6 @@ public class MainActivity extends Activity implements SensorEventListener {
         sendHidReport((byte) quantized.x, (byte) quantized.y);
     }
 
-    /**
-     * Signed angle of gravity (projected onto the plane perpendicular to the phone x axis)
-     * from the phone's -z axis, about +x. Zero when the phone lies flat face-up; positive
-     * when the top edge tips down.
-     */
-    private double currentTiltAngle() {
-        Vector3 g = ground_gravity_vec;
-        // cross(-z, g).x = g.y and dot(-z, g) = -g.z; the x component of g drops out
-        return Math.atan2(g.y, -g.z);
-    }
-
-    /**
-     * Signed roll of the phone about its y axis: angle of gravity (projected onto the plane
-     * perpendicular to y) from the phone's -z axis. Zero when the phone lies flat face-up;
-     * positive when the right edge (+x) dips toward the ground.
-     */
-    private double currentRollAngle() {
-        Vector3 g = ground_gravity_vec;
-        return Math.atan2(g.x, -g.z);
-    }
-
-    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-    private void processClick() {
-        if (!gravityValid) {
-            return;
-        }
-        if (clickReferencePending) {
-            clickReferenceAngle = currentRollAngle();
-            clickReferencePending = false;
-            Log.d(TAG, "click start: reference=" + Math.toDegrees(clickReferenceAngle) + "deg");
-        }
-
-        double rel = currentRollAngle() - clickReferenceAngle;
-        rel = Math.atan2(Math.sin(rel), Math.cos(rel)); // wrap to [-pi, pi]
-
-        double press = Math.toRadians(CLICK_PRESS_DEG);
-        double release = Math.toRadians(CLICK_RELEASE_DEG);
-
-        // right edge down -> right button, left edge down -> left button; held while tilted
-        boolean wantRight = tiltRightDown ? rel > release : rel > press;
-        boolean wantLeft = tiltLeftDown ? rel < -release : rel < -press;
-
-        if (wantRight == tiltRightDown && wantLeft == tiltLeftDown) {
-            return;
-        }
-        Log.d(TAG, String.format("click rel=%.1f left=%b right=%b",
-                Math.toDegrees(rel), wantLeft, wantRight));
-        tiltRightDown = wantRight;
-        tiltLeftDown = wantLeft;
-        isRightDown = wantRight;
-        isLeftDown = wantLeft;
-        sendHidReport((byte) 0, (byte) 0);
-    }
-
-    /** Lets go of any button the tilt is holding (leaving click state). */
-    @SuppressLint("MissingPermission")
-    private void releaseTiltButtons() {
-        if (!tiltLeftDown && !tiltRightDown) {
-            return;
-        }
-        if (tiltLeftDown) {
-            isLeftDown = false;
-        }
-        if (tiltRightDown) {
-            isRightDown = false;
-        }
-        tiltLeftDown = false;
-        tiltRightDown = false;
-        sendHidReport((byte) 0, (byte) 0);
-    }
-
-    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-    private void processScroll(float deltaTime) {
-        if (!gravityValid) {
-            return;
-        }
-        if (scrollReferencePending) {
-            // remember where the phone is held now; tilt is measured relative to this
-            scrollReferenceAngle = currentTiltAngle();
-            scrollReferencePending = false;
-            Log.d(TAG, "scroll start: reference=" + Math.toDegrees(scrollReferenceAngle) + "deg");
-        }
-        double rel = currentTiltAngle() - scrollReferenceAngle;
-        rel = Math.atan2(Math.sin(rel), Math.cos(rel)); // wrap to [-pi, pi]
-
-        double excess = Math.abs(rel) - Math.toRadians(SCROLL_DEADZONE_DEG);
-        long nowMs = SystemClock.uptimeMillis();
-        if (nowMs - lastScrollLogMs >= 100) {
-            lastScrollLogMs = nowMs;
-            Vector3 g = ground_gravity_vec;
-            Log.d(TAG, String.format("scroll tilt=%.1f ref=%.1f rel=%.1f g=(%.2f,%.2f,%.2f)",
-                    Math.toDegrees(currentTiltAngle()), Math.toDegrees(scrollReferenceAngle),
-                    Math.toDegrees(rel), g.x, g.y, g.z));
-        }
-        if (excess <= 0) {
-            scrollCarry = 0;
-            return;
-        }
-
-        double rate = Math.min(excess * SCROLL_TICKS_PER_SEC_PER_RAD, SCROLL_MAX_TICKS_PER_SEC);
-        scrollCarry += Math.signum(rel) * rate * deltaTime;
-
-        int ticks = (int) scrollCarry;
-        if (ticks == 0) {
-            return;
-        }
-        scrollCarry -= ticks;
-
-        Log.d(TAG, "scroll ticks=" + ticks);
-        // tipping the top edge down (positive angle) scrolls down; HID wheel + is up
-        sendHidReport((byte) 0, (byte) 0, (byte) Math.clamp(-ticks, -127, 127));
-    }
-
     @Override
     public void onAccuracyChanged(Sensor sensor, int accuracy) {
     }
@@ -1011,10 +685,6 @@ public class MainActivity extends Activity implements SensorEventListener {
     @SuppressLint("MissingPermission")
     private void handleButtonTouch(MotionEvent event, boolean isSideLeft) {
         int action = event.getActionMasked();
-
-        if (cursorDisabled) {
-            return;
-        }
 
         if (action == MotionEvent.ACTION_DOWN) {
             if (isSideLeft) {
@@ -1042,7 +712,7 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private void sendHidReport(byte du, byte dv, byte wheel) {
-        if (hidDeviceProfile == null || targetDevice == null || cursorDisabled) {
+        if (hidDeviceProfile == null || targetDevice == null) {
             return;
         }
 
@@ -1070,11 +740,6 @@ public class MainActivity extends Activity implements SensorEventListener {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        stateStreamGeneration++;
-        if (stateStreamConn != null) {
-            stateStreamConn.disconnect();
-        }
-        uiHandler.removeCallbacksAndMessages(null);
         stopSensors();
         try {
             unregisterReceiver(discoveryReceiver);
