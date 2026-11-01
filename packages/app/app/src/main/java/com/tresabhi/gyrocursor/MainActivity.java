@@ -186,6 +186,8 @@ public class MainActivity extends Activity implements SensorEventListener {
     private volatile Vector3 ground_gravity_vec = new Vector3(0, -1, 0);
 
     private TextView statusTextView;
+    private LinearLayout rootLayoutView;
+    private boolean choosingFront = false;
     private final BluetoothHidDevice.Callback callback = new BluetoothHidDevice.Callback() {
         @Override
         public void onAppStatusChanged(BluetoothDevice pluggedDevice, boolean registered) {
@@ -425,6 +427,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         clickContainer.setVisibility(android.view.View.GONE); // hidden for now
         rootLayout.addView(clickContainer);
 
+        rootLayoutView = rootLayout;
         setContentView(rootLayout);
     }
 
@@ -470,8 +473,74 @@ public class MainActivity extends Activity implements SensorEventListener {
         deviceContainerLayout.addView(deviceButton);
     }
 
-    @SuppressLint("MissingPermission")
     private void onDeviceSelected(BluetoothDevice device) {
+        showFrontChooser(device);
+    }
+
+    // lets the user pick which of the phone's 6 axis directions points "front"
+    private void showFrontChooser(BluetoothDevice device) {
+        choosingFront = true;
+
+        LinearLayout chooser = new LinearLayout(this);
+        chooser.setOrientation(LinearLayout.VERTICAL);
+        chooser.setBackgroundColor(Color.parseColor("#F5F5F7"));
+        chooser.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        chooser.setPadding(32, 32, 32, 32);
+        ViewCompat.setOnApplyWindowInsetsListener(chooser, (v, windowInsets) -> {
+            Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+            v.setPadding(32 + bars.left, 32 + bars.top, 32 + bars.right, 32 + bars.bottom);
+            return WindowInsetsCompat.CONSUMED;
+        });
+
+        String[] labels = {"+X", "+Y", "+Z", "-X", "-Y", "-Z"};
+        double[][] vectors = {
+                {1, 0, 0}, {0, 1, 0}, {0, 0, 1},
+                {-1, 0, 0}, {0, -1, 0}, {0, 0, -1}
+        };
+
+        // 2 rows x 3 columns
+        for (int row = 0; row < 2; row++) {
+            LinearLayout rowLayout = new LinearLayout(this);
+            rowLayout.setOrientation(LinearLayout.HORIZONTAL);
+            for (int col = 0; col < 3; col++) {
+                final double[] vec = vectors[row * 3 + col];
+                Button btn = new Button(this);
+                btn.setText(labels[row * 3 + col]);
+                btn.setOnClickListener(v -> {
+                    phone_front_vec.set(vec[0], vec[1], vec[2]);
+                    choosingFront = false;
+                    setContentView(rootLayoutView);
+                    proceedWithDevice(device);
+                });
+                rowLayout.addView(btn, new LinearLayout.LayoutParams(
+                        0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
+            }
+            chooser.addView(rowLayout);
+        }
+
+        Button cancel = new Button(this);
+        cancel.setText("Cancel");
+        cancel.setOnClickListener(v -> onBackPressed());
+        chooser.addView(cancel);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.addView(chooser);
+        setContentView(scroll);
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (choosingFront) {
+            choosingFront = false;
+            setContentView(rootLayoutView);
+            return;
+        }
+        super.onBackPressed();
+    }
+
+    @SuppressLint("MissingPermission")
+    private void proceedWithDevice(BluetoothDevice device) {
         if (bluetoothAdapter != null && bluetoothAdapter.isDiscovering()) {
             restartDiscoveryPending = false;
             bluetoothAdapter.cancelDiscovery();
