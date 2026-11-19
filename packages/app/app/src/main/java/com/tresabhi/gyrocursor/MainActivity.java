@@ -57,6 +57,7 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     // Stream Deck Pedal: 0 = left, 1 = middle, 2 = right
     private static final int LEFT_CLICK_PEDAL = 1;
+    private static final int RIGHT_CLICK_PEDAL = 2;
 
     private static final byte[] HID_DESCRIPTOR = new byte[]{
 
@@ -314,6 +315,9 @@ public class MainActivity extends Activity implements SensorEventListener {
                 if (index == LEFT_CLICK_PEDAL) {
                     isLeftDown = pressed;
                     hidHandler.post(() -> sendHidReport((byte) 0, (byte) 0));
+                } else if (index == RIGHT_CLICK_PEDAL) {
+                    isRightDown = pressed;
+                    hidHandler.post(() -> sendHidReport((byte) 0, (byte) 0));
                 }
             }
 
@@ -323,8 +327,9 @@ public class MainActivity extends Activity implements SensorEventListener {
                 Log.d(TAG, "Pedal server " + (connected ? "connected" : "disconnected"));
 
                 // don't leave the button stuck down if the link drops mid-press
-                if (!connected && isLeftDown) {
+                if (!connected && (isLeftDown || isRightDown)) {
                     isLeftDown = false;
+                    isRightDown = false;
                     hidHandler.post(() -> sendHidReport((byte) 0, (byte) 0));
                 }
             }
