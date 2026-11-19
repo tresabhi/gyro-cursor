@@ -59,6 +59,10 @@ public class MainActivity extends Activity implements SensorEventListener {
     private static final int LEFT_CLICK_PEDAL = 1;
     private static final int RIGHT_CLICK_PEDAL = 2;
 
+    // cursor stays still this long after a button goes down, so a click
+    // doesn't turn into an accidental drag
+    private static final long CLICK_FREEZE_NS = 250_000_000L;
+
     private static final byte[] HID_DESCRIPTOR = new byte[]{
 
             // Report 1 (mouse)
@@ -182,6 +186,8 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     private volatile boolean isLeftDown = false;
     private volatile boolean isRightDown = false;
+    // System.nanoTime() of the last button press; 0 when none yet
+    private volatile long lastPressNs = 0L;
 
     // the magnitude matters for this one
     private volatile Vector3 gyroscope_vec = new Vector3();
@@ -313,9 +319,15 @@ public class MainActivity extends Activity implements SensorEventListener {
                 Log.d(TAG, "Pedal " + index + (pressed ? " down" : " up"));
 
                 if (index == LEFT_CLICK_PEDAL) {
+                    if (pressed && !isLeftDown) {
+                        lastPressNs = System.nanoTime();
+                    }
                     isLeftDown = pressed;
                     hidHandler.post(() -> sendHidReport((byte) 0, (byte) 0));
                 } else if (index == RIGHT_CLICK_PEDAL) {
+                    if (pressed && !isRightDown) {
+                        lastPressNs = System.nanoTime();
+                    }
                     isRightDown = pressed;
                     hidHandler.post(() -> sendHidReport((byte) 0, (byte) 0));
                 }
@@ -805,6 +817,15 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private void processSmoothMouseMovement(float deltaTime) {
+        long pressNs = lastPressNs;
+
+        if (pressNs != 0L && System.nanoTime() - pressNs < CLICK_FREEZE_NS) {
+            // drop the motion entirely so it doesn't jump once the freeze ends
+            smooth.set(0, 0, 0);
+            sendHidReport((byte) 0, (byte) 0);
+            return;
+        }
+
         Vector3 displacement = new Vector3(gyroscope_vec.z, gyroscope_vec.x, 0)
                 .multiply(sensitivity)
                 .multiply(deltaTime);
@@ -827,6 +848,8 @@ public class MainActivity extends Activity implements SensorEventListener {
         int action = event.getActionMasked();
 
         if (action == MotionEvent.ACTION_DOWN) {
+            lastPressNs = System.nanoTime();
+
             if (isSideLeft) {
                 isLeftDown = true;
             } else {
