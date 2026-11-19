@@ -1,7 +1,8 @@
-import time
+import src.usb_host
 import src.wifi
 
 src.wifi.init()
+src.usb_host.init()
 
 while True:
-    time.sleep(1)
+    src.usb_host.poll()
