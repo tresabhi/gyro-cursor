@@ -22,7 +22,3 @@ def update(report):
             changes.append((index, pressed))
 
     return changes
-
-
-def message(index, pressed):
-    return f"pedal {index} {1 if pressed else 0}"
