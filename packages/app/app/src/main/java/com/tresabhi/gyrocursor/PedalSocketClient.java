@@ -32,6 +32,9 @@ public class PedalSocketClient {
     public interface Listener {
         void onPedalChanged(int index, boolean pressed);
 
+        // "off", "cursor" or "scroll"; the server owns this state
+        void onModeChanged(String mode);
+
         void onConnectionChanged(boolean connected);
     }
 
@@ -218,6 +221,11 @@ public class PedalSocketClient {
                 Log.w(TAG, "Bad pedal message: " + line);
             }
 
+            return;
+        }
+
+        if (parts.length == 2 && parts[0].equals("mode")) {
+            listener.onModeChanged(parts[1]);
             return;
         }
 

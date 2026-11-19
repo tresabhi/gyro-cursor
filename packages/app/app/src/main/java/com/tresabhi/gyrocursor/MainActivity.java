@@ -63,6 +63,13 @@ public class MainActivity extends Activity implements SensorEventListener {
     // doesn't turn into an accidental drag
     private static final long CLICK_FREEZE_NS = 250_000_000L;
 
+    // scroll: tilt (degrees, relative to the angle when scroll mode started)
+    // inside which nothing scrolls, and how fast it scrolls past that
+    private static final double SCROLL_DEADZONE_DEG = 5;
+    private static final double SCROLL_TICKS_PER_SEC_PER_DEG = 0.4;
+
+    private enum Mode { OFF, CURSOR, SCROLL }
+
     private static final byte[] HID_DESCRIPTOR = new byte[]{
 
             // Report 1 (mouse)
@@ -188,6 +195,14 @@ public class MainActivity extends Activity implements SensorEventListener {
     private volatile boolean isRightDown = false;
     // System.nanoTime() of the last button press; 0 when none yet
     private volatile long lastPressNs = 0L;
+
+    // set by the server; only changed on the HID thread
+    private volatile Mode mode = Mode.CURSOR;
+    // HID thread only: tilt since scroll mode started, and leftover
+    // fractional wheel ticks
+    private double scrollAngleDeg = 0;
+    private double scrollTicks = 0;
+    private TextView modeTextView;
 
     // the magnitude matters for this one
     private volatile Vector3 gyroscope_vec = new Vector3();
@@ -318,6 +333,10 @@ public class MainActivity extends Activity implements SensorEventListener {
             public void onPedalChanged(int index, boolean pressed) {
                 Log.d(TAG, "Pedal " + index + (pressed ? " down" : " up"));
 
+                if (mode == Mode.OFF) {
+                    return;
+                }
+
                 if (index == LEFT_CLICK_PEDAL) {
                     if (pressed && !isLeftDown) {
                         lastPressNs = System.nanoTime();
@@ -331,6 +350,21 @@ public class MainActivity extends Activity implements SensorEventListener {
                     isRightDown = pressed;
                     hidHandler.post(() -> sendHidReport((byte) 0, (byte) 0));
                 }
+            }
+
+            @SuppressLint("MissingPermission")
+            @Override
+            public void onModeChanged(String name) {
+                Mode newMode;
+
+                try {
+                    newMode = Mode.valueOf(name.toUpperCase());
+                } catch (IllegalArgumentException e) {
+                    Log.w(TAG, "Unknown mode: " + name);
+                    return;
+                }
+
+                hidHandler.post(() -> setMode(newMode));
             }
 
             @SuppressLint("MissingPermission")
@@ -421,6 +455,12 @@ public class MainActivity extends Activity implements SensorEventListener {
         statusTextView.setPadding(0, 0, 0, 16);
         statusTextView.setTextColor(Color.DKGRAY);
         rootLayout.addView(statusTextView);
+
+        modeTextView = new TextView(this);
+        modeTextView.setText("Mode: " + mode.name().toLowerCase());
+        modeTextView.setTextSize(16);
+        modeTextView.setTextColor(Color.DKGRAY);
+        rootLayout.addView(modeTextView);
 
         Button scanButton = new Button(this);
         scanButton.setText("Scan for Devices");
@@ -815,8 +855,44 @@ public class MainActivity extends Activity implements SensorEventListener {
         }
     };
 
+    // HID thread only
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+    private void setMode(Mode newMode) {
+        if (newMode == mode) {
+            return;
+        }
+
+        Log.d(TAG, "Mode: " + newMode);
+
+        mode = newMode;
+        smooth.set(0, 0, 0);
+        // the current angle becomes the scroll origin
+        scrollAngleDeg = 0;
+        scrollTicks = 0;
+
+        if (newMode == Mode.OFF && (isLeftDown || isRightDown)) {
+            isLeftDown = false;
+            isRightDown = false;
+            sendHidReport((byte) 0, (byte) 0);
+        }
+
+        runOnUiThread(() -> modeTextView.setText("Mode: " + newMode.name().toLowerCase()));
+    }
+
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private void processSmoothMouseMovement(float deltaTime) {
+        switch (mode) {
+            case OFF:
+                // keep sending empty reports: an idle HID link drops into sniff
+                // mode, which disrupts other Bluetooth audio on the host
+                sendHidReport((byte) 0, (byte) 0);
+                return;
+
+            case SCROLL:
+                processScroll(deltaTime);
+                return;
+        }
+
         long pressNs = lastPressNs;
 
         if (pressNs != 0L && System.nanoTime() - pressNs < CLICK_FREEZE_NS) {
@@ -837,6 +913,31 @@ public class MainActivity extends Activity implements SensorEventListener {
         quantized.multiply(-1).__cursorClamp();
 
         sendHidReport((byte) quantized.x, (byte) quantized.y);
+    }
+
+    // the same rotation that moves the cursor vertically, integrated into an
+    // angle; scroll speed grows with how far past the deadzone it is
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+    private void processScroll(float deltaTime) {
+        scrollAngleDeg += Math.toDegrees(gyroscope_vec.x) * deltaTime;
+
+        double excessDeg = Math.abs(scrollAngleDeg) - SCROLL_DEADZONE_DEG;
+
+        if (excessDeg <= 0) {
+            scrollTicks = 0;
+            sendHidReport((byte) 0, (byte) 0);
+            return;
+        }
+
+        // positive x rotation moves the cursor up, so it scrolls up too
+        scrollTicks += Math.signum(scrollAngleDeg) * excessDeg
+                * SCROLL_TICKS_PER_SEC_PER_DEG * deltaTime;
+
+        int ticks = (int) scrollTicks;
+        scrollTicks -= ticks;
+        ticks = Math.max(-127, Math.min(127, ticks));
+
+        sendHidReport((byte) 0, (byte) 0, (byte) ticks);
     }
 
     @Override
