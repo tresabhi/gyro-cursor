@@ -26,6 +26,7 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -53,6 +54,9 @@ public class MainActivity extends Activity implements SensorEventListener {
     // smaller roll it must come back inside before the button releases
     private static final double CLICK_PRESS_DEG = 20;
     private static final double CLICK_RELEASE_DEG = 12;
+
+    // Stream Deck Pedal: 0 = left, 1 = middle, 2 = right
+    private static final int LEFT_CLICK_PEDAL = 1;
 
     private static final byte[] HID_DESCRIPTOR = new byte[]{
 
@@ -151,6 +155,11 @@ public class MainActivity extends Activity implements SensorEventListener {
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothHidDevice hidDeviceProfile;
     private BluetoothDevice targetDevice;
+    private volatile boolean hidRegistered = false;
+    // device waiting on HID registration before it can connect
+    private BluetoothDevice pendingConnectDevice;
+
+    private PedalSocketClient pedalSocketClient;
 
     private SensorManager sensorManager;
     private Sensor gyroscopeSensor;
@@ -192,7 +201,16 @@ public class MainActivity extends Activity implements SensorEventListener {
         @Override
         public void onAppStatusChanged(BluetoothDevice pluggedDevice, boolean registered) {
             Log.d(TAG, "HID registration status changed. Registered: " + registered);
-            runOnUiThread(() -> statusTextView.setText("HID Profile State: " + (registered ? "Registered" : "Unregistered")));
+            hidRegistered = registered;
+            runOnUiThread(() -> {
+                statusTextView.setText("HID Profile State: " + (registered ? "Registered" : "Unregistered"));
+
+                if (registered && pendingConnectDevice != null) {
+                    BluetoothDevice device = pendingConnectDevice;
+                    pendingConnectDevice = null;
+                    connectHid(device);
+                }
+            });
         }
 
         @Override
@@ -273,6 +291,9 @@ public class MainActivity extends Activity implements SensorEventListener {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // the watch dimming/sleeping backgrounds the app, which unregisters HID
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
         createSimpleUI();
 
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
@@ -283,6 +304,32 @@ public class MainActivity extends Activity implements SensorEventListener {
         hidThread = new HandlerThread("hid-report-thread");
         hidThread.start();
         hidHandler = new Handler(hidThread.getLooper());
+
+        pedalSocketClient = new PedalSocketClient(this, new PedalSocketClient.Listener() {
+            @SuppressLint("MissingPermission")
+            @Override
+            public void onPedalChanged(int index, boolean pressed) {
+                Log.d(TAG, "Pedal " + index + (pressed ? " down" : " up"));
+
+                if (index == LEFT_CLICK_PEDAL) {
+                    isLeftDown = pressed;
+                    hidHandler.post(() -> sendHidReport((byte) 0, (byte) 0));
+                }
+            }
+
+            @SuppressLint("MissingPermission")
+            @Override
+            public void onConnectionChanged(boolean connected) {
+                Log.d(TAG, "Pedal server " + (connected ? "connected" : "disconnected"));
+
+                // don't leave the button stuck down if the link drops mid-press
+                if (!connected && isLeftDown) {
+                    isLeftDown = false;
+                    hidHandler.post(() -> sendHidReport((byte) 0, (byte) 0));
+                }
+            }
+        });
+        pedalSocketClient.start();
 
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
 
@@ -593,6 +640,15 @@ public class MainActivity extends Activity implements SensorEventListener {
             return;
         }
 
+        // Android unregisters HID apps that leave the foreground (e.g. behind
+        // the pairing dialog); re-register and connect once that lands
+        if (!hidRegistered) {
+            pendingConnectDevice = device;
+            statusTextView.setText("Re-registering HID, then connecting...");
+            registerHidApp();
+            return;
+        }
+
         if (!hidDeviceProfile.connect(device)) {
             Log.w(TAG, "connect() returned false for " + device.getAddress());
             statusTextView.setText("Error: could not connect to " + device.getAddress());
@@ -606,14 +662,7 @@ public class MainActivity extends Activity implements SensorEventListener {
             public void onServiceConnected(int profile, BluetoothProfile proxy) {
                 if (profile == BluetoothProfile.HID_DEVICE) {
                     hidDeviceProfile = (BluetoothHidDevice) proxy;
-
-                    BluetoothHidDeviceAppSdpSettings sdpSettings = new BluetoothHidDeviceAppSdpSettings(
-                            "GyroCursorMouse", "Android Gyro Mouse", "Android",
-                            BluetoothHidDevice.SUBCLASS1_MOUSE, HID_DESCRIPTOR
-                    );
-
-                    hidDeviceProfile.registerApp(sdpSettings, null, null,
-                            Executors.newSingleThreadExecutor(), callback);
+                    registerHidApp();
                 }
             }
 
@@ -621,11 +670,28 @@ public class MainActivity extends Activity implements SensorEventListener {
             public void onServiceDisconnected(int profile) {
                 if (profile == BluetoothProfile.HID_DEVICE) {
                     hidDeviceProfile = null;
+                    hidRegistered = false;
                     stopSensors();
                     runOnUiThread(() -> statusTextView.setText("HID Profile State: Disconnected"));
                 }
             }
         }, BluetoothProfile.HID_DEVICE);
+    }
+
+    @SuppressLint("MissingPermission")
+    private void registerHidApp() {
+        if (hidDeviceProfile == null) {
+            return;
+        }
+
+        BluetoothHidDeviceAppSdpSettings sdpSettings = new BluetoothHidDeviceAppSdpSettings(
+                "GyroCursorMouse", "Android Gyro Mouse", "Android",
+                BluetoothHidDevice.SUBCLASS1_MOUSE, HID_DESCRIPTOR
+        );
+
+        boolean started = hidDeviceProfile.registerApp(sdpSettings, null, null,
+                Executors.newSingleThreadExecutor(), callback);
+        Log.d(TAG, "registerApp() returned " + started);
     }
 
     @SuppressLint("MissingPermission")
@@ -802,6 +868,15 @@ public class MainActivity extends Activity implements SensorEventListener {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+
+        if (hidDeviceProfile != null && !hidRegistered) {
+            registerHidApp();
+        }
+    }
+
+    @Override
     protected void onPause() {
         super.onPause();
     }
@@ -810,6 +885,9 @@ public class MainActivity extends Activity implements SensorEventListener {
     protected void onDestroy() {
         super.onDestroy();
         stopSensors();
+        if (pedalSocketClient != null) {
+            pedalSocketClient.stop();
+        }
         try {
             unregisterReceiver(discoveryReceiver);
         } catch (IllegalArgumentException ignored) {

@@ -3,6 +3,7 @@ KEYS = [
     "SERVER_PASSWORD",
     "SERVER_IP_TIMEOUT",
     "SERVER_IP_POLL_INTERVAL",
+    "SERVER_PORT",
 ]
 
 _defaults = {}

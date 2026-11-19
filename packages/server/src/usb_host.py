@@ -46,6 +46,8 @@ def _connect():
 
 
 def poll():
+    """Returns the new report when it differs from the last one, else None."""
+
     global _last_report
 
     if _device is None:
@@ -53,18 +55,22 @@ def poll():
 
         if _device is None:
             time.sleep(0.5)
-            return
+            return None
 
     try:
         count = _device.read(ENDPOINT_IN, _buffer, timeout=1000)
     except usb.core.USBTimeoutError:
-        return
+        return None
     except usb.core.USBError as error:
         print(f"USB read error: {error!r}")
-        return
+        return None
 
     report = bytes(_buffer[:count])
 
-    if report != _last_report:
-        print(report.hex(" "))
-        _last_report = report
+    if report == _last_report:
+        return None
+
+    print(report.hex(" "))
+    _last_report = report
+
+    return report
